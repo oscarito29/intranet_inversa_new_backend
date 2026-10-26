@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.core.exceptions import PermissionDenied
+from django.utils import timezone
 
 from apps.usuarios.models import Corporacion, Usuario
 
@@ -27,6 +30,23 @@ def contar_notificaciones_pendientes(usuario: Usuario) -> int:
     if usuario.rol_id != 1:
         queryset = queryset.filter(financiera_id=usuario.financiera_id)
     return queryset.count()
+
+
+def obtener_resumen(usuario: Usuario) -> dict[str, int]:
+    """Conteos del dashboard, limitados a la financiera del usuario salvo para administradores."""
+    ahora = timezone.now()
+    inicio_mes = ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    inicio_semana = (ahora - timedelta(days=ahora.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    queryset = Documento.objects.all()
+    if usuario.rol_id != 1:
+        queryset = queryset.filter(financiera_id=usuario.financiera_id)
+
+    return {
+        'pendientes': queryset.filter(doc_aprobado=Documento.PENDIENTE).count(),
+        'rechazados_mes': queryset.filter(doc_aprobado=Documento.RECHAZADO, fecha_rechaza__gte=inicio_mes).count(),
+        'nuevos_semana': queryset.filter(fecha__gte=inicio_semana).count(),
+    }
 
 
 def obtener_documentos(usuario: Usuario, anio: int, mes_id: int, corporacion_id: str, financiera_id: str):

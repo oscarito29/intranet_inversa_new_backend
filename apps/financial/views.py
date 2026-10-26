@@ -54,6 +54,15 @@ class CatalogosView(APIView):
         )
 
 
+class ResumenView(APIView):
+    @extend_schema(
+        summary='Resumen de documentos para el dashboard',
+        description='Pendientes de aprobar, rechazados del mes y documentos nuevos de la semana, según el alcance del usuario.',
+    )
+    def get(self, request: Request) -> Response:
+        return Response(selectors.obtener_resumen(request.user))
+
+
 class DocumentosView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
