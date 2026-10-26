@@ -24,6 +24,46 @@ class UsuarioSerializer(serializers.ModelSerializer):
         )
 
 
+class PerfilSerializer(serializers.ModelSerializer):
+    rol_nombre = serializers.CharField(source='rol.name', read_only=True)
+    financiera_nombre = serializers.CharField(source='financiera.nombre', read_only=True)
+    puede_editar_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Usuario
+        fields = (
+            'id',
+            'name',
+            'email',
+            'phone_number',
+            'picture',
+            'rol_nombre',
+            'financiera_nombre',
+            'fecha_nacimiento',
+            'puede_editar_email',
+        )
+
+    def get_puede_editar_email(self, obj: Usuario) -> bool:
+        return obj.rol_id != 2
+
+
+class PerfilUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(min_length=3, max_length=30)
+    phone_number = serializers.CharField(max_length=15)
+    email = serializers.EmailField(max_length=255, required=False)
+
+
+class CambiarPasswordSerializer(serializers.Serializer):
+    actual = serializers.CharField()
+    nuevo = serializers.CharField(min_length=8)
+    repetido = serializers.CharField()
+
+    def validate(self, attrs):
+        if attrs['nuevo'] != attrs['repetido']:
+            raise serializers.ValidationError({'repetido': 'Las contraseñas no coinciden.'})
+        return attrs
+
+
 class RolSerializer(serializers.ModelSerializer):
     class Meta:
         model = Rol
