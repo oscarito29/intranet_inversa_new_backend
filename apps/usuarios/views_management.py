@@ -1,4 +1,3 @@
-from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.request import Request
@@ -6,13 +5,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.cache import cached
-from apps.core.permissions import AdminParaEscritura, EsAdministrador
+from apps.core.permissions import EsAdministrador
 
-from . import services
-from .models import Corporacion, Financiera, Rol, Usuario
+from . import selectors, services
+from .models import Corporacion, Financiera, Rol
 from .serializers import (
     CorporacionSerializer,
     FinancieraSerializer,
+    PasswordTemporalSerializer,
     RolSerializer,
     UsuarioListSerializer,
     UsuarioWriteSerializer,
@@ -58,32 +58,52 @@ class CorporacionesListView(APIView):
 
 
 class UsuariosListCreateView(APIView):
-    """GET /api/v1/usuarios/ — listar; POST /api/v1/usuarios/ — crear (solo admin)."""
+    """GET /api/v1/usuarios/ — listar; POST /api/v1/usuarios/ — crear. Todo el endpoint es de administrador."""
 
-    permission_classes = [AdminParaEscritura]
+    # La lista trae correo, celular, dirección y fecha de nacimiento de todas las personas: no es para cualquier usuario.
+    permission_classes = [EsAdministrador]
 
-    @extend_schema(summary='Listar usuarios', tags=[TAG], responses=UsuarioListSerializer(many=True))
+    @extend_schema(summary='Listar usuarios (solo admin)', tags=[TAG], responses=UsuarioListSerializer(many=True))
     def get(self, request: Request) -> Response:
-        usuarios = Usuario.objects.select_related('rol', 'financiera').order_by('name')
-        return Response(UsuarioListSerializer(usuarios, many=True).data)
+        return Response(UsuarioListSerializer(selectors.listar_usuarios(), many=True).data)
 
     @extend_schema(summary='Crear usuario', tags=[TAG], request=UsuarioWriteSerializer, responses=UsuarioListSerializer)
     def post(self, request: Request) -> Response:
         serializer = UsuarioWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        usuario = services.crear_usuario(serializer)
+        usuario = services.crear_usuario(request.user, serializer)
         return Response(UsuarioListSerializer(usuario).data, status=status.HTTP_201_CREATED)
 
 
 class UsuarioDetailView(APIView):
-    """PATCH /api/v1/usuarios/{id}/ — editar (solo admin)."""
+    """GET/PATCH /api/v1/usuarios/{id}/ — ver y editar (solo admin)."""
 
     permission_classes = [EsAdministrador]
 
+    @extend_schema(summary='Ver un usuario', tags=[TAG], responses=UsuarioListSerializer)
+    def get(self, request: Request, pk: int) -> Response:
+        return Response(UsuarioListSerializer(selectors.obtener_usuario(pk)).data)
+
     @extend_schema(summary='Editar usuario', tags=[TAG], request=UsuarioWriteSerializer, responses=UsuarioListSerializer)
     def patch(self, request: Request, pk: int) -> Response:
-        usuario = get_object_or_404(Usuario, pk=pk)
-        serializer = UsuarioWriteSerializer(usuario, data=request.data, partial=True)
+        serializer = UsuarioWriteSerializer(selectors.obtener_usuario(pk), data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        usuario = services.actualizar_usuario(serializer)
+        usuario = services.actualizar_usuario(request.user, serializer)
         return Response(UsuarioListSerializer(usuario).data)
+
+
+class UsuarioRestablecerPasswordView(APIView):
+    """POST /api/v1/usuarios/{id}/restablecer-password/ — asigna una contraseña temporal (solo admin)."""
+
+    permission_classes = [EsAdministrador]
+
+    @extend_schema(
+        summary='Restablecer la contraseña de un usuario',
+        description='Genera una contraseña temporal aleatoria y la devuelve una sola vez, para que el administrador se la entregue al usuario.',
+        tags=[TAG],
+        request=None,
+        responses=PasswordTemporalSerializer,
+    )
+    def post(self, request: Request, pk: int) -> Response:
+        _, temporal = services.restablecer_password(request.user, pk)
+        return Response({'password_temporal': temporal})

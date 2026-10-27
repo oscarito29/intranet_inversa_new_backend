@@ -7,15 +7,23 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.utils import timezone
 
+from django.utils.crypto import get_random_string
+
 from apps.core.archivos import borrar_archivo_local
 from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
+from apps.core.permissions import ROL_ADMIN
 
 from .models import Usuario
+from .selectors import descripcion_cambio_password
 
 EXTENSIONES_FOTO = {'.jpg', '.jpeg', '.png', '.webp'}
 TAMANIO_MAXIMO_FOTO_BYTES = 2 * 1024 * 1024
 ROL_USUARIO = 2
+ESTADO_ACTIVO = 'A'
+# Sin caracteres que se confunden al dictarlos (0/O, 1/l/I): la contraseña temporal se entrega a una persona.
+CARACTERES_PASSWORD_TEMPORAL = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+LARGO_PASSWORD_TEMPORAL = 12
 
 
 @transaction.atomic
@@ -46,7 +54,7 @@ def cambiar_password(usuario: Usuario, actual: str, nuevo: str) -> None:
     usuario.set_password(nuevo)
     usuario.updated_at = timezone.now()
     usuario.save(update_fields=['password', 'updated_at'])
-    registrar_bitacora(usuario.email, 'Edicion', f'Cambio de Password del Usuario {usuario.email}')
+    registrar_bitacora(usuario.email, 'Edicion', descripcion_cambio_password(usuario.email))
 
 
 @transaction.atomic
@@ -70,14 +78,43 @@ def guardar_foto_perfil(usuario: Usuario, archivo: UploadedFile) -> Usuario:
 
 
 @transaction.atomic
-def crear_usuario(serializer) -> Usuario:
+def crear_usuario(actor: Usuario, serializer) -> Usuario:
     usuario = serializer.save()
+    registrar_bitacora(actor.email, 'Creacion', f'Crea el usuario {usuario.email}')
     invalidar('cumpleanos')
     return usuario
 
 
 @transaction.atomic
-def actualizar_usuario(serializer) -> Usuario:
+def actualizar_usuario(actor: Usuario, serializer) -> Usuario:
+    """Un administrador no puede quedarse sin acceso: no desactiva su propia cuenta ni se quita el rol de administrador."""
+    usuario = serializer.instance
+    datos = serializer.validated_data
+    if usuario.pk == actor.pk:
+        if datos.get('estado', usuario.estado) != ESTADO_ACTIVO:
+            raise ValidationError({'estado': 'No puedes desactivar tu propia cuenta.'})
+        if usuario.rol_id == ROL_ADMIN and datos.get('rol_id', usuario.rol_id) != ROL_ADMIN:
+            raise ValidationError({'rol_id': 'No puedes quitarte tu propio rol de administrador.'})
+
     usuario = serializer.save()
+    registrar_bitacora(actor.email, 'Edicion', f'Modifica el usuario {usuario.email}')
     invalidar('cumpleanos')
     return usuario
+
+
+@transaction.atomic
+def restablecer_password(actor: Usuario, usuario_id: int) -> tuple[Usuario, str]:
+    """
+    Asigna una contraseña temporal aleatoria y la devuelve UNA vez para que el administrador se la entregue al usuario
+    (todavía no hay envío por correo). Solo queda el hash en la base y, en la bitácora, que se restableció, no la clave.
+    """
+    usuario = Usuario.objects.select_for_update().get(pk=usuario_id)
+    if usuario.pk == actor.pk:
+        raise ValidationError('Para cambiar tu propia contraseña usa «Mi perfil».')
+
+    temporal = get_random_string(LARGO_PASSWORD_TEMPORAL, CARACTERES_PASSWORD_TEMPORAL)
+    usuario.set_password(temporal)
+    usuario.updated_at = timezone.now()
+    usuario.save(update_fields=['password', 'updated_at'])
+    registrar_bitacora(actor.email, 'Edicion', descripcion_cambio_password(usuario.email))
+    return usuario, temporal

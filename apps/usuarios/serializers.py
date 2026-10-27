@@ -167,6 +167,12 @@ class UsuarioWriteSerializer(serializers.ModelSerializer):
         return instance
 
 
+class PasswordTemporalSerializer(serializers.Serializer):
+    """Respuesta de restablecer la contraseña: la temporal se muestra una sola vez."""
+
+    password_temporal = serializers.CharField()
+
+
 class LoginSerializer(TokenObtainPairSerializer):
     """
     Extiende el serializer estándar de SimpleJWT para devolver también los

@@ -119,7 +119,8 @@ class GestionDeUsuariosTests(ApiTestCase):
     def test_usuario_inexistente_es_404(self):
         self.assertEqual(self.cliente_admin.patch(reverse('usuarios-detail', args=[99999]), {'name': 'x'}, format='json').status_code, 404)
 
-    def test_cualquiera_autenticado_lista_usuarios_y_catalogos(self):
-        self.assertEqual(self.cliente_usuario.get(reverse('usuarios-list-create')).status_code, 200)
+    def test_la_lista_de_usuarios_es_solo_del_admin_pero_los_catalogos_son_de_cualquiera(self):
+        self.assertEqual(self.cliente_usuario.get(reverse('usuarios-list-create')).status_code, 403)
+        self.assertEqual(self.cliente_admin.get(reverse('usuarios-list-create')).status_code, 200)
         for nombre in ('usuarios-roles', 'usuarios-financieras', 'usuarios-corporaciones'):
             self.assertEqual(self.cliente_usuario.get(reverse(nombre)).status_code, 200)
