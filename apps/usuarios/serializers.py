@@ -64,7 +64,7 @@ class PerfilUpdateSerializer(serializers.Serializer):
 
 class CambiarPasswordSerializer(serializers.Serializer):
     actual = serializers.CharField()
-    nuevo = serializers.CharField(min_length=8)
+    nuevo = serializers.CharField(max_length=128)
     repetido = serializers.CharField()
 
     def validate(self, attrs):

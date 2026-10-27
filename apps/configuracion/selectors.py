@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 from django.core.paginator import Paginator
 from django.db.models import Q, QuerySet
+from django.db.models.functions import ExtractDay
 from django.utils import timezone
 
 from apps.documentos.models import Etiqueta, EtiquetaRol
@@ -40,7 +41,11 @@ def mes_actual() -> int:
 
 
 def listar_cumpleanos_del_mes() -> QuerySet[Usuario]:
-    return Usuario.objects.filter(fecha_nacimiento__month=mes_actual()).order_by('fecha_nacimiento')
+    """Solo personas activas, por día del mes. El año de nacimiento no sale de aquí (ver `CumpleañoSerializer`)."""
+    return (
+        Usuario.objects.filter(estado='A', deleted_at__isnull=True, fecha_nacimiento__month=mes_actual())
+        .order_by(ExtractDay('fecha_nacimiento'), 'name')
+    )
 
 
 TAMANIO_PAGINA_BITACORA_MAXIMO = 100

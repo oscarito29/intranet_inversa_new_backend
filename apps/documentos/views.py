@@ -113,6 +113,7 @@ class DocumentosExportarView(APIView):
             etiqueta_ids=filtros['etiquetas'],
             orden=filtros['orden'],
         )
+        services.registrar_exportacion_de_documentos(request.user, len(filas))
         return respuesta_xlsx('documentos.xlsx', generar_xlsx('Documentos', selectors.ENCABEZADOS_DE_EXPORTACION, filas))
 
 

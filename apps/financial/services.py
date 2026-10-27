@@ -39,6 +39,11 @@ def _obtener_para_transicion(documento_id: int, permitidos: set[str], accion: st
     return documento
 
 
+def registrar_exportacion_del_periodo(usuario: Usuario, anio_numero: int, mes_id: int, corporacion_id: str) -> None:
+    """Sacar los datos de un periodo a un archivo es una acción sensible: queda quién y cuándo."""
+    registrar_bitacora(usuario.email, 'Exportacion', f'Exporta a Excel el periodo {mes_id:02d}/{anio_numero} de la corporacion {corporacion_id}')
+
+
 @transaction.atomic
 def subir_documento(
     usuario: Usuario,

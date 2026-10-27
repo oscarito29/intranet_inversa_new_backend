@@ -85,9 +85,20 @@ class ActividadWriteSerializer(serializers.Serializer):
 
 
 class CumpleañoSerializer(serializers.ModelSerializer):
+    """Lo ve cualquier usuario: solo el día y el mes, nunca el año de nacimiento."""
+
+    cumple_dia = serializers.SerializerMethodField()
+    cumple_mes = serializers.SerializerMethodField()
+
     class Meta:
         model = Usuario
-        fields = ('id', 'name', 'fecha_nacimiento')
+        fields = ('id', 'name', 'cumple_dia', 'cumple_mes')
+
+    def get_cumple_dia(self, usuario: Usuario) -> int:
+        return usuario.fecha_nacimiento.day
+
+    def get_cumple_mes(self, usuario: Usuario) -> int:
+        return usuario.fecha_nacimiento.month
 
 
 class BitacoraSerializer(serializers.Serializer):

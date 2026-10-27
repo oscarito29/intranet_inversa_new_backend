@@ -122,7 +122,9 @@ class ExportarPeriodoView(APIView):
         parametros.is_valid(raise_exception=True)
         datos = parametros.validated_data
         filas = selectors.filas_de_exportacion_del_periodo(request.user, datos['anio'], datos['mes'], datos['corporacion'])
-        nombre = f"estados-financieros-{selectors.obtener_numero_de_anio(datos['anio'])}-{datos['mes']:02d}-corporacion-{datos['corporacion']}.xlsx"
+        anio_numero = selectors.obtener_numero_de_anio(datos['anio'])
+        services.registrar_exportacion_del_periodo(request.user, anio_numero, datos['mes'], datos['corporacion'])
+        nombre = f"estados-financieros-{anio_numero}-{datos['mes']:02d}-corporacion-{datos['corporacion']}.xlsx"
         return respuesta_xlsx(nombre, generar_xlsx('Periodo', selectors.ENCABEZADOS_DE_EXPORTACION, filas))
 
 

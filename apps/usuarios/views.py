@@ -1,17 +1,20 @@
 from django.conf import settings
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import AuthenticationFailed, Throttled, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from . import services
+from apps.core.bitacora import registrar_bitacora
+
+from . import bloqueo, services
 from .models import Usuario
 from .serializers import (
     CambiarPasswordSerializer,
@@ -41,6 +44,9 @@ class LoginView(TokenObtainPairView):
 
     serializer_class = LoginSerializer
     permission_classes = [permissions.AllowAny]
+    # Tope por dirección, aparte del bloqueo por correo: frena a quien prueba muchos correos desde un mismo lugar.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'login'
 
     @extend_schema(
         summary='Iniciar sesión',
@@ -48,10 +54,24 @@ class LoginView(TokenObtainPairView):
         tags=[TAG],
     )
     def post(self, request: Request, *args, **kwargs) -> Response:
+        correo = str(request.data.get('email', '')).strip().lower()
+        espera = bloqueo.segundos_de_bloqueo(correo)
+        if espera:
+            raise Throttled(wait=espera)
+
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except AuthenticationFailed:
+            if bloqueo.registrar_fallo(correo):
+                registrar_bitacora(correo, 'Bloqueo', 'Acceso bloqueado por intentos fallidos de inicio de sesión')
+                raise Throttled(wait=bloqueo.BLOQUEO_SEGUNDOS) from None
+            raise
+
+        bloqueo.limpiar(correo)
         data = serializer.validated_data
         refresh_token = str(data.pop('refresh'))
+        registrar_bitacora(serializer.user.email, 'Login', 'Inicia sesión')
 
         response = Response({'access': str(data['access']), 'user': data['user']}, status=status.HTTP_200_OK)
         _set_refresh_cookie(response, refresh_token)
@@ -95,7 +115,11 @@ class LogoutView(APIView):
         raw_refresh_token = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
         if raw_refresh_token:
             try:
-                RefreshToken(raw_refresh_token).blacklist()
+                token = RefreshToken(raw_refresh_token)
+                correo = Usuario.objects.filter(pk=token['user_id']).values_list('email', flat=True).first()
+                token.blacklist()
+                if correo:
+                    registrar_bitacora(correo, 'Logout', 'Cierra sesión')
             except TokenError:
                 pass
         response = Response(status=status.HTTP_204_NO_CONTENT)
@@ -140,6 +164,10 @@ class PerfilFotoView(APIView):
 
 class CambiarPasswordView(APIView):
     """POST /api/v1/auth/password/ — cambio de contraseña verificando la actual."""
+
+    # Quien tiene un token robado no debe poder adivinar la contraseña actual a fuerza bruta.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password'
 
     @extend_schema(
         summary='Cambiar contraseña',

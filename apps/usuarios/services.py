@@ -1,6 +1,7 @@
 import re
 import uuid
 
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
@@ -13,8 +14,9 @@ from apps.core.archivos import borrar_archivo_local
 from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
 from apps.core.permissions import ROL_ADMIN
+from apps.core.subidas import validar_contenido
 
-from .models import Usuario
+from .models import Rol, Usuario
 from .selectors import descripcion_cambio_password
 
 EXTENSIONES_FOTO = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -24,6 +26,14 @@ ESTADO_ACTIVO = 'A'
 # Sin caracteres que se confunden al dictarlos (0/O, 1/l/I): la contraseña temporal se entrega a una persona.
 CARACTERES_PASSWORD_TEMPORAL = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 LARGO_PASSWORD_TEMPORAL = 12
+
+
+def validar_politica_de_password(password: str, usuario: Usuario, campo: str = 'password') -> None:
+    """Aplica `AUTH_PASSWORD_VALIDATORS`; el error queda en el campo que escribió la persona, con los motivos en español."""
+    try:
+        validate_password(password, usuario)
+    except ValidationError as exc:
+        raise ValidationError({campo: list(exc.messages)}) from exc
 
 
 @transaction.atomic
@@ -50,6 +60,7 @@ def actualizar_perfil(usuario: Usuario, name: str, phone_number: str, email: str
 def cambiar_password(usuario: Usuario, actual: str, nuevo: str) -> None:
     if not usuario.check_password(actual):
         raise ValidationError({'actual': 'La contraseña actual es incorrecta.'})
+    validar_politica_de_password(nuevo, usuario, 'nuevo')
 
     usuario.set_password(nuevo)
     usuario.updated_at = timezone.now()
@@ -65,6 +76,10 @@ def guardar_foto_perfil(usuario: Usuario, archivo: UploadedFile) -> Usuario:
         raise ValidationError({'picture': f'Tipo de imagen no permitido ({extension or "sin extensión"}).'})
     if archivo.size > TAMANIO_MAXIMO_FOTO_BYTES:
         raise ValidationError({'picture': 'La imagen supera el tamaño máximo permitido (2MB).'})
+    try:
+        validar_contenido(archivo)
+    except ValidationError as exc:
+        raise ValidationError({'picture': list(exc.messages)}) from exc
 
     foto_anterior = usuario.picture
     nombre_seguro = re.sub(r'[^A-Za-z0-9._-]+', '_', nombre)
@@ -79,6 +94,9 @@ def guardar_foto_perfil(usuario: Usuario, archivo: UploadedFile) -> Usuario:
 
 @transaction.atomic
 def crear_usuario(actor: Usuario, serializer) -> Usuario:
+    datos = serializer.validated_data
+    if datos.get('password'):
+        validar_politica_de_password(datos['password'], Usuario(email=datos.get('email', ''), name=datos.get('name', '')))
     usuario = serializer.save()
     registrar_bitacora(actor.email, 'Creacion', f'Crea el usuario {usuario.email}')
     invalidar('cumpleanos')
@@ -96,10 +114,27 @@ def actualizar_usuario(actor: Usuario, serializer) -> Usuario:
         if usuario.rol_id == ROL_ADMIN and datos.get('rol_id', usuario.rol_id) != ROL_ADMIN:
             raise ValidationError({'rol_id': 'No puedes quitarte tu propio rol de administrador.'})
 
+    if datos.get('password'):
+        validar_politica_de_password(datos['password'], usuario)
+    rol_anterior, financiera_anterior, estado_anterior = usuario.rol_id, usuario.financiera_id, usuario.estado
+    nombre_rol_anterior = usuario.rol.name
     usuario = serializer.save()
     registrar_bitacora(actor.email, 'Edicion', f'Modifica el usuario {usuario.email}')
+    _registrar_cambios_sensibles(actor, usuario, rol_anterior, nombre_rol_anterior, financiera_anterior, estado_anterior)
     invalidar('cumpleanos')
     return usuario
+
+
+def _registrar_cambios_sensibles(actor: Usuario, usuario: Usuario, rol_anterior, nombre_rol_anterior, financiera_anterior, estado_anterior) -> None:
+    """El rol, la entidad y el estado de una persona definen qué puede ver y hacer: cada cambio queda con su propio renglón."""
+    if usuario.rol_id != rol_anterior:
+        nuevo = Rol.objects.get(pk=usuario.rol_id).name
+        registrar_bitacora(actor.email, 'Edicion', f'Cambio de rol de {usuario.email}: {nombre_rol_anterior} a {nuevo}')
+    if usuario.financiera_id != financiera_anterior:
+        registrar_bitacora(actor.email, 'Edicion', f'Cambio de entidad de {usuario.email}: {financiera_anterior} a {usuario.financiera_id}')
+    if usuario.estado != estado_anterior:
+        accion = 'Activa' if usuario.estado == ESTADO_ACTIVO else 'Desactiva'
+        registrar_bitacora(actor.email, 'Edicion', f'{accion} al usuario {usuario.email}')
 
 
 @transaction.atomic
