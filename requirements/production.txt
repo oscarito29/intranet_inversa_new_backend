@@ -1,1 +1,2 @@
 -r base.txt
+django-redis==6.0.0

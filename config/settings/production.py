@@ -30,3 +30,12 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),  # noqa: F405
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),  # noqa: F405
 }
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': env('REDIS_URL'),  # noqa: F405
+        'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'},
+        'KEY_PREFIX': 'intranet',
+    }
+}

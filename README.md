@@ -33,3 +33,12 @@ python manage.py runserver 127.0.0.1:8010
 ```
 
 API docs: `http://127.0.0.1:8010/api/v1/docs/` (Swagger).
+
+## Pruebas
+
+```bash
+python manage.py test --settings=config.settings.testing
+```
+
+SQLite en memoria; no toca la base local. Las reglas del backend están en `SKILLS_BACKEND.md` y las decisiones en
+`docs/estandares/`.

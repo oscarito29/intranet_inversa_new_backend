@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'drf_spectacular',
     *LOCAL_APPS,
@@ -45,6 +46,10 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# La vista previa de un PDF lo muestra dentro de la página (iframe del mismo origen, vía el proxy del frontend).
+# Con el valor por defecto (DENY) el navegador lo bloquearía; SAMEORIGIN sigue impidiendo que otros sitios lo enmarquen.
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 ROOT_URLCONF = 'config.urls'
 
@@ -110,15 +115,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'EXCEPTION_HANDLER': 'config.exception_handler.custom_exception_handler',
 }
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    # Sin 'rest_framework_simplejwt.token_blacklist' instalado, la rotación
-    # emitiría refresh tokens nuevos sin invalidar los anteriores. Se activará
-    # junto con el blacklist app en una fase posterior.
-    'ROTATE_REFRESH_TOKENS': False,
+    # Cada refresh emite un token nuevo y deja el anterior en la lista negra; el logout también.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
@@ -140,3 +145,11 @@ API_BASE_PATH = 'api/v1'
 REFRESH_TOKEN_COOKIE_NAME = 'refresh_token'
 REFRESH_TOKEN_COOKIE_SECURE = True
 REFRESH_TOKEN_COOKIE_SAMESITE = 'Lax'
+
+# Caché de datos globales (ver apps/core/cache.py). Producción usa Redis.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'intranet-inversa',
+    }
+}
