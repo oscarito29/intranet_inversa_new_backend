@@ -5,6 +5,8 @@ from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 
+from apps.core.subidas import validar_contenido
+
 EXTENSIONES_PERMITIDAS = {'.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.rar'}
 TAMANIO_MAXIMO_BYTES = 15 * 1024 * 1024
 
@@ -20,6 +22,7 @@ def validar_archivo(archivo: UploadedFile) -> None:
         raise ValidationError(f'Tipo de archivo no permitido ({extension or "sin extensión"}).')
     if archivo.size > TAMANIO_MAXIMO_BYTES:
         raise ValidationError('El archivo supera el tamaño máximo permitido (15MB).')
+    validar_contenido(archivo)
 
 
 def guardar_documento(

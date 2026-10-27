@@ -1,6 +1,14 @@
 from .base import *  # noqa: F403
+from .validaciones import exigir_clave_secreta
 
 DEBUG = False
+
+# Sin valor por defecto a propósito: con la clave de ejemplo cualquiera podría fabricar tokens de sesión válidos.
+# Si falta la variable de entorno, el servidor no arranca.
+SECRET_KEY = exigir_clave_secreta(env('DJANGO_SECRET_KEY'))  # noqa: F405
+
+API_DOCS_ENABLED = env.bool('API_DOCS_ENABLED', default=False)  # noqa: F405
+ADMIN_ENABLED = env.bool('ADMIN_ENABLED', default=False)  # noqa: F405
 
 ALLOWED_HOSTS = env.list('DJANGO_ALLOWED_HOSTS', default=[])  # noqa: F405
 
@@ -19,6 +27,12 @@ DATABASES = {
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])  # noqa: F405
 CORS_ALLOW_CREDENTIALS = True
 CORS_EXPOSE_HEADERS = ['Content-Disposition']  # nombre del archivo en las exportaciones
+
+# Detrás de un proxy o balanceador que termina el HTTPS, Django solo ve HTTP: sin esto, la redirección a HTTPS
+# entraría en un ciclo y las cookies seguras no se enviarían. Se enciende solo si de verdad hay un proxy de confianza
+# que pone `X-Forwarded-Proto` (y que descarta el que mande el cliente).
+if env.bool('DJANGO_BEHIND_PROXY', default=False):  # noqa: F405
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True

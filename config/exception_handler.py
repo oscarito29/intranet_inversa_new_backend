@@ -1,7 +1,7 @@
 from django.core.exceptions import ObjectDoesNotExist, ValidationError as DjangoValidationError
 from django.db import IntegrityError
 from rest_framework import status
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
@@ -13,8 +13,19 @@ def _mensajes_de_django(exc: DjangoValidationError):
     return {'detail': ' '.join(exc.messages)}
 
 
+def _mensaje_de_espera(segundos: int | None) -> str:
+    if not segundos:
+        return 'Demasiados intentos. Espera un momento e inténtalo de nuevo.'
+    if segundos < 90:
+        return f'Demasiados intentos. Espera {segundos} segundos e inténtalo de nuevo.'
+    minutos = -(-segundos // 60)
+    return f'Demasiados intentos. Espera {minutos} minutos e inténtalo de nuevo.'
+
+
 def custom_exception_handler(exc, context):
-    if isinstance(exc, ObjectDoesNotExist):
+    if isinstance(exc, Throttled):
+        exc = Throttled(wait=exc.wait, detail=_mensaje_de_espera(int(exc.wait) if exc.wait else None))
+    elif isinstance(exc, ObjectDoesNotExist):
         exc = NotFound('El registro solicitado no existe.')
     elif isinstance(exc, DjangoValidationError):
         exc = ValidationError(_mensajes_de_django(exc))

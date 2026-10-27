@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
+from apps.core.subidas import tipo_mime_de
 from apps.usuarios.models import Usuario
 
 from . import selectors
@@ -60,6 +61,11 @@ def eliminar_categoria(usuario: Usuario, category_id: int) -> None:
     invalidar('documentos')
 
 
+def registrar_exportacion_de_documentos(usuario: Usuario, cantidad: int) -> None:
+    """Sacar la lista de documentos a un archivo es una acción sensible: queda quién, cuándo y cuántos."""
+    registrar_bitacora(usuario.email, 'Exportacion', f'Exporta a Excel {cantidad} documentos institucionales')
+
+
 @transaction.atomic
 def subir_documento(usuario: Usuario, archivo, name: str, area_id: int, tag_ids: list[int]) -> Upload:
     ruta = guardar_documento_institucional(archivo, area_id)
@@ -70,7 +76,7 @@ def subir_documento(usuario: Usuario, archivo, name: str, area_id: int, tag_ids:
         area_id=area_id,
         estado=Upload.ACTIVO,
         fecha=timezone.now(),
-        tipo=archivo.content_type or 'application/octet-stream',
+        tipo=tipo_mime_de(archivo.name),
         tamanio=tamanio_legible(archivo.size),
     )
     if tag_ids:

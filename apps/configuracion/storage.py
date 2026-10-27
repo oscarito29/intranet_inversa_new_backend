@@ -5,6 +5,8 @@ from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 
+from apps.core.subidas import validar_contenido
+
 EXTENSIONES_PERMITIDAS = {'.jpg', '.jpeg', '.png', '.webp'}
 TAMANIO_MAXIMO_BYTES = 5 * 1024 * 1024
 
@@ -20,6 +22,7 @@ def _validar_imagen(archivo: UploadedFile) -> None:
         raise ValidationError(f'Tipo de imagen no permitido ({extension or "sin extensión"}).')
     if archivo.size > TAMANIO_MAXIMO_BYTES:
         raise ValidationError('La imagen supera el tamaño máximo permitido (5MB).')
+    validar_contenido(archivo)
 
 
 def guardar_imagen_carrusel(archivo: UploadedFile) -> str:
