@@ -4,9 +4,12 @@ import uuid
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
+from django.db import transaction
 from django.utils import timezone
 
-from apps.financial.models import Bitacora
+from apps.core.archivos import borrar_archivo_local
+from apps.core.bitacora import registrar_bitacora
+from apps.core.cache import invalidar
 
 from .models import Usuario
 
@@ -15,12 +18,9 @@ TAMANIO_MAXIMO_FOTO_BYTES = 2 * 1024 * 1024
 ROL_USUARIO = 2
 
 
-def _registrar_bitacora(usuario: Usuario, descripcion: str) -> None:
-    Bitacora.objects.create(usuario=usuario.email, accion='Edicion', descripcion=descripcion[:100], fecha=timezone.now())
-
-
+@transaction.atomic
 def actualizar_perfil(usuario: Usuario, name: str, phone_number: str, email: str | None) -> Usuario:
-    """El rol Usuario no puede cambiar su correo (igual que el legacy); solo un admin."""
+    """El rol Usuario no puede cambiar su correo (igual que el legado); solo un administrador."""
     cambia_email = email is not None and email != usuario.email
     if cambia_email:
         if usuario.rol_id == ROL_USUARIO:
@@ -34,9 +34,11 @@ def actualizar_perfil(usuario: Usuario, name: str, phone_number: str, email: str
     usuario.phone_number = phone_number
     usuario.updated_at = timezone.now()
     usuario.save(update_fields=['name', 'full_name', 'phone_number', 'email', 'updated_at'])
+    invalidar('cumpleanos')
     return usuario
 
 
+@transaction.atomic
 def cambiar_password(usuario: Usuario, actual: str, nuevo: str) -> None:
     if not usuario.check_password(actual):
         raise ValidationError({'actual': 'La contraseña actual es incorrecta.'})
@@ -44,9 +46,10 @@ def cambiar_password(usuario: Usuario, actual: str, nuevo: str) -> None:
     usuario.set_password(nuevo)
     usuario.updated_at = timezone.now()
     usuario.save(update_fields=['password', 'updated_at'])
-    _registrar_bitacora(usuario, f'Cambio de Password del Usuario {usuario.email}')
+    registrar_bitacora(usuario.email, 'Edicion', f'Cambio de Password del Usuario {usuario.email}')
 
 
+@transaction.atomic
 def guardar_foto_perfil(usuario: Usuario, archivo: UploadedFile) -> Usuario:
     nombre = archivo.name or ''
     extension = ('.' + nombre.rsplit('.', 1)[-1].lower()) if '.' in nombre else ''
@@ -55,10 +58,26 @@ def guardar_foto_perfil(usuario: Usuario, archivo: UploadedFile) -> Usuario:
     if archivo.size > TAMANIO_MAXIMO_FOTO_BYTES:
         raise ValidationError({'picture': 'La imagen supera el tamaño máximo permitido (2MB).'})
 
+    foto_anterior = usuario.picture
     nombre_seguro = re.sub(r'[^A-Za-z0-9._-]+', '_', nombre)
     ruta_guardada = default_storage.save(f'perfiles/{usuario.id}_{uuid.uuid4().hex[:8]}_{nombre_seguro}', archivo)
 
     usuario.picture = default_storage.url(ruta_guardada)
     usuario.updated_at = timezone.now()
     usuario.save(update_fields=['picture', 'updated_at'])
+    borrar_archivo_local(foto_anterior)
+    return usuario
+
+
+@transaction.atomic
+def crear_usuario(serializer) -> Usuario:
+    usuario = serializer.save()
+    invalidar('cumpleanos')
+    return usuario
+
+
+@transaction.atomic
+def actualizar_usuario(serializer) -> Usuario:
+    usuario = serializer.save()
+    invalidar('cumpleanos')
     return usuario
