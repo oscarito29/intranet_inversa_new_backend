@@ -5,7 +5,7 @@ from django.utils import timezone
 from openpyxl import load_workbook
 
 from apps.core.exportacion import TIPO_XLSX
-from apps.core.testing import ApiTestCase, cliente_de
+from apps.core.testing import ApiTestCase, cliente_de, crear_usuario
 from apps.financial.models import Documento
 
 PERIODO = {'anio': 2026, 'mes': 10, 'corporacion': '001'}
@@ -69,13 +69,20 @@ class ExportarPeriodoTests(ApiTestCase):
 
         self.assertEqual(_filas(self._exportar())[0][1], 'Pendiente')
 
-    def test_un_usuario_solo_exporta_su_propia_financiera(self):
-        _documento(financiera_id='001', nombre_archivo='mio.pdf')
+    def test_un_usuario_de_entidad_no_exporta(self):
         _documento(financiera_id='002', nombre_archivo='ajeno.pdf')
 
-        filas = _filas(self._exportar(self.cliente_usuario))
+        self.assertEqual(self._exportar(self.cliente_usuario).status_code, 403)
 
-        self.assertEqual([(fila[0], fila[2]) for fila in filas], [('FINANCIERA A', 'mio.pdf')])
+    def test_aprobador_y_consulta_exportan_todas_las_entidades(self):
+        _documento(financiera_id='001', nombre_archivo='a.pdf')
+        _documento(financiera_id='002', nombre_archivo='b.pdf')
+
+        for rol in (3, 4):
+            with self.subTest(rol=rol):
+                cliente = cliente_de(crear_usuario(rol_id=rol, email=f'rol{rol}@inversa.hn'))
+                filas = _filas(self._exportar(cliente))
+                self.assertEqual([(fila[0], fila[2]) for fila in filas], [('FINANCIERA A', 'a.pdf'), ('FINANCIERA B', 'b.pdf')])
 
     def test_el_motivo_de_una_revocacion_sale_en_la_columna_de_motivo(self):
         _documento(estado=Documento.REVOCADO, motivo_desaprueba='Cifras erradas')

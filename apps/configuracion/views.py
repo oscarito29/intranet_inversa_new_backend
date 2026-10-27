@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.cache import cached
-from apps.core.permissions import AdminParaEscritura, EsAdministrador
+from apps.core.permissions import Permiso, requiere
 
 from . import selectors, services
 from .serializers import (
@@ -39,7 +39,7 @@ class RolesView(APIView):
 
 
 class EtiquetasView(APIView):
-    permission_classes = [AdminParaEscritura]
+    permission_classes = [requiere(Permiso.CONTENIDO_GESTIONAR, solo_escritura=True)]
 
     @extend_schema(summary='Listar etiquetas', tags=[TAG], responses=EtiquetaSerializer(many=True))
     def get(self, request: Request) -> Response:
@@ -62,7 +62,7 @@ class EtiquetasView(APIView):
 
 
 class EtiquetaDetailView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.CONTENIDO_GESTIONAR)]
 
     @extend_schema(summary='Eliminar una etiqueta', tags=[TAG], responses={204: None})
     def delete(self, request: Request, etiqueta_id: int) -> Response:
@@ -80,7 +80,7 @@ class EtiquetaRolesView(APIView):
 
 class ImagenesView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [AdminParaEscritura]
+    permission_classes = [requiere(Permiso.CONTENIDO_GESTIONAR, solo_escritura=True)]
 
     @extend_schema(summary='Listar imágenes del carrusel institucional', tags=[TAG], responses=ImagenSerializer(many=True))
     def get(self, request: Request) -> Response:
@@ -98,7 +98,7 @@ class ImagenesView(APIView):
 
 
 class ImagenDetailView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.CONTENIDO_GESTIONAR)]
 
     @extend_schema(summary='Cambiar el puesto (1-4) de una imagen del carrusel', tags=[TAG], responses=ImagenSerializer)
     def patch(self, request: Request, imagen_id: int) -> Response:
@@ -120,7 +120,7 @@ class ImagenDetailView(APIView):
 
 class ComunicadosView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [AdminParaEscritura]
+    permission_classes = [requiere(Permiso.CONTENIDO_GESTIONAR, solo_escritura=True)]
 
     @extend_schema(summary='Listar comunicados', tags=[TAG], responses=ComunicadoSerializer(many=True))
     def get(self, request: Request) -> Response:
@@ -140,7 +140,7 @@ class ComunicadosView(APIView):
 
 class ComunicadoDetailView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.CONTENIDO_GESTIONAR)]
 
     @extend_schema(summary='Editar un comunicado existente', tags=[TAG], responses=ComunicadoSerializer)
     def patch(self, request: Request, comunicado_id: int) -> Response:
@@ -158,7 +158,7 @@ class ComunicadoDetailView(APIView):
 
 
 class ActividadesView(APIView):
-    permission_classes = [AdminParaEscritura]
+    permission_classes = [requiere(Permiso.CONTENIDO_GESTIONAR, solo_escritura=True)]
 
     @extend_schema(summary='Listar actividades del calendario', tags=[TAG], responses=ActividadSerializer(many=True))
     def get(self, request: Request) -> Response:
@@ -175,7 +175,7 @@ class ActividadesView(APIView):
 
 
 class ActividadDetailView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.CONTENIDO_GESTIONAR)]
 
     @extend_schema(summary='Editar una actividad', tags=[TAG], request=ActividadWriteSerializer, responses=ActividadSerializer)
     def patch(self, request: Request, actividad_id: int) -> Response:
@@ -201,7 +201,7 @@ class CumpleañosView(APIView):
 
 
 class BitacoraView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.BITACORA_VER)]
 
     @extend_schema(
         summary='Consultar la bitácora, paginada',

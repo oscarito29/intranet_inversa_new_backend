@@ -257,7 +257,7 @@ class ResumenYCatalogosTests(ApiTestCase):
             {'anios', 'meses', 'corporaciones', 'rango_vigente', 'notificaciones_pendientes', 'usuario_acceso'},
         )
         self.assertEqual((usuario['notificaciones_pendientes'], admin['notificaciones_pendientes']), (0, 1))
-        self.assertEqual(usuario['usuario_acceso'], {'rol_id': 2, 'es_admin': False, 'financiera_id': '001'})
+        self.assertEqual(usuario['usuario_acceso'], {'rol_id': 2, 'permisos': ['financiero.subir'], 'financiera_id': '001', 'financiera_ids': ['001']})
         self.assertEqual(len(usuario['corporaciones'][0]['financieras']), 2)
 
     def test_guardar_el_rango_invalida_la_cache_de_catalogos(self):
@@ -272,8 +272,9 @@ class ResumenYCatalogosTests(ApiTestCase):
     def test_catalogos_globales_se_consultan_una_sola_vez(self):
         self.cliente_usuario.get(reverse('financiero-catalogos'))
 
-        # Segunda petición: solo las dos consultas dependientes del usuario (autenticación forzada no consulta).
-        with self.assertNumQueries(1):
+        # Segunda petición: solo lo que depende del usuario (autenticación forzada no consulta): sus entidades (dos veces,
+        # una para el alcance de los pendientes y otra para mostrarlas) y el conteo de pendientes.
+        with self.assertNumQueries(3):
             self.cliente_usuario.get(reverse('financiero-catalogos'))
 
 

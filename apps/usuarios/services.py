@@ -12,16 +12,19 @@ from django.utils.crypto import get_random_string
 from apps.core.archivos import borrar_archivo, guardar_archivo
 from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
-from apps.core.permissions import ROL_ADMIN
+from apps.core.permissions import ROL_ADMIN, Permiso, roles_con, tiene_permiso
 from apps.core.subidas import validar_contenido
 
-from .models import Rol, Usuario
-from .selectors import descripcion_cambio_password
+from .models import Rol, Usuario, UsuarioEntidad
+from .selectors import descripcion_cambio_password, obtener_usuario
+from .sesiones import cerrar_sesiones
 
 EXTENSIONES_FOTO = {'.jpg', '.jpeg', '.png', '.webp'}
 TAMANIO_MAXIMO_FOTO_BYTES = 2 * 1024 * 1024
-ROL_USUARIO = 2
 ESTADO_ACTIVO = 'A'
+# Con menos personas que puedan aprobar, quien sube algo no tendría quién se lo apruebe (nadie aprueba lo que subió).
+MINIMO_DE_APROBADORES = 2
+MINIMO_DE_ADMINISTRADORES = 1
 # Sin caracteres que se confunden al dictarlos (0/O, 1/l/I): la contraseña temporal se entrega a una persona.
 CARACTERES_PASSWORD_TEMPORAL = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 LARGO_PASSWORD_TEMPORAL = 12
@@ -37,10 +40,10 @@ def validar_politica_de_password(password: str, usuario: Usuario, campo: str = '
 
 @transaction.atomic
 def actualizar_perfil(usuario: Usuario, name: str, phone_number: str, email: str | None) -> Usuario:
-    """El rol Usuario no puede cambiar su correo (igual que el legado); solo un administrador."""
+    """El correo es la identidad de la persona (con él inicia sesión): solo quien administra usuarios lo cambia (igual que el legado)."""
     cambia_email = email is not None and email != usuario.email
     if cambia_email:
-        if usuario.rol_id == ROL_USUARIO:
+        if not tiene_permiso(usuario, Permiso.USUARIOS_GESTIONAR):
             raise ValidationError({'email': 'Tu correo solo lo puede cambiar un administrador.'})
         if Usuario.objects.filter(email=email).exclude(pk=usuario.pk).exists():
             raise ValidationError({'email': 'Ya existe un usuario con ese correo.'})
@@ -98,6 +101,8 @@ def crear_usuario(actor: Usuario, serializer) -> Usuario:
         validar_politica_de_password(datos['password'], Usuario(email=datos.get('email', ''), name=datos.get('name', '')))
     usuario = serializer.save()
     registrar_bitacora(actor.email, 'Creacion', f'Crea el usuario {usuario.email}')
+    if datos.get('entidades_adicionales'):
+        sincronizar_entidades_adicionales(actor, usuario, datos['entidades_adicionales'])
     invalidar('cumpleanos')
     return usuario
 
@@ -117,11 +122,51 @@ def actualizar_usuario(actor: Usuario, serializer) -> Usuario:
         validar_politica_de_password(datos['password'], usuario)
     rol_anterior, financiera_anterior, estado_anterior = usuario.rol_id, usuario.financiera_id, usuario.estado
     nombre_rol_anterior = usuario.rol.name
+    aprobadores_antes = _contar_activos_con(Permiso.FINANCIERO_APROBAR)
+    administradores_antes = _contar_activos_con(Permiso.USUARIOS_GESTIONAR)
+
     usuario = serializer.save()
+    cambio_entidades = 'entidades_adicionales' in datos and sincronizar_entidades_adicionales(actor, usuario, datos['entidades_adicionales'])
+    _exigir_continuidad(aprobadores_antes, administradores_antes)
+
     registrar_bitacora(actor.email, 'Edicion', f'Modifica el usuario {usuario.email}')
     _registrar_cambios_sensibles(actor, usuario, rol_anterior, nombre_rol_anterior, financiera_anterior, estado_anterior)
+    if cambio_entidades or (usuario.rol_id, usuario.financiera_id, usuario.estado) != (rol_anterior, financiera_anterior, estado_anterior):
+        # Su pantalla (menú, botones, entidades) se renueva al volver a entrar; el servidor ya aplica lo nuevo.
+        cerrar_sesiones(usuario)
     invalidar('cumpleanos')
-    return usuario
+    # Se vuelve a leer: la instancia traía las entidades adicionales de ANTES de guardar (`prefetch_related` de la vista).
+    return obtener_usuario(usuario.pk)
+
+
+def _contar_activos_con(permiso: Permiso) -> int:
+    return Usuario.objects.filter(estado=ESTADO_ACTIVO, deleted_at__isnull=True, rol_id__in=roles_con(permiso)).count()
+
+
+def _exigir_continuidad(aprobadores_antes: int, administradores_antes: int) -> None:
+    """
+    Un cambio no puede dejar al sistema sin quien lo administre ni sin quien apruebe. Solo frena lo que EMPEORA la
+    situación: si ya había menos del mínimo, lo que no toca a los aprobadores o administradores no se bloquea.
+    """
+    aprobadores = _contar_activos_con(Permiso.FINANCIERO_APROBAR)
+    if aprobadores < MINIMO_DE_APROBADORES and aprobadores < aprobadores_antes:
+        raise ValidationError(f'Debe haber al menos {MINIMO_DE_APROBADORES} personas activas que puedan aprobar estados financieros.')
+    administradores = _contar_activos_con(Permiso.USUARIOS_GESTIONAR)
+    if administradores < MINIMO_DE_ADMINISTRADORES and administradores < administradores_antes:
+        raise ValidationError('Debe quedar al menos un administrador activo.')
+
+
+def sincronizar_entidades_adicionales(actor: Usuario, usuario: Usuario, entidades: list[str]) -> bool:
+    """Deja exactamente `entidades` como las adicionales de la persona (la principal no cuenta). Devuelve si algo cambió."""
+    deseadas = {str(entidad) for entidad in entidades} - {str(usuario.financiera_id)}
+    actuales = set(UsuarioEntidad.objects.filter(usuario_id=usuario.pk).values_list('financiera_id', flat=True))
+    if deseadas == actuales:
+        return False
+    UsuarioEntidad.objects.filter(usuario_id=usuario.pk, financiera_id__in=actuales - deseadas).delete()
+    UsuarioEntidad.objects.bulk_create([UsuarioEntidad(usuario_id=usuario.pk, financiera_id=entidad) for entidad in sorted(deseadas - actuales)])
+    antes, despues = ', '.join(sorted(actuales)) or 'ninguna', ', '.join(sorted(deseadas)) or 'ninguna'
+    registrar_bitacora(actor.email, 'Edicion', f'Cambio de entidades adicionales de {usuario.email}: {antes} a {despues}')
+    return True
 
 
 def _registrar_cambios_sensibles(actor: Usuario, usuario: Usuario, rol_anterior, nombre_rol_anterior, financiera_anterior, estado_anterior) -> None:

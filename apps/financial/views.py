@@ -9,7 +9,8 @@ from rest_framework.views import APIView
 
 from apps.core.cache import cached
 from apps.core.exportacion import TIPO_XLSX, generar_xlsx, respuesta_xlsx
-from apps.core.permissions import EsAdministrador
+from apps.core.permissions import Permiso, permisos_de, requiere
+from apps.usuarios.alcance import entidades_de
 
 from . import selectors, services
 from .serializers import (
@@ -45,7 +46,7 @@ def _catalogos_globales() -> dict:
 class CatalogosView(APIView):
     @extend_schema(
         summary='Catálogos del módulo financiero',
-        description='Años, meses, corporaciones con sus financieras, rango de fechas vigente y nivel de acceso del usuario.',
+        description='Años, meses, corporaciones con sus financieras, rango de fechas vigente y el acceso del usuario: sus permisos y las entidades que puede ver.',
         tags=[TAG],
     )
     def get(self, request: Request) -> Response:
@@ -56,8 +57,10 @@ class CatalogosView(APIView):
                 'notificaciones_pendientes': selectors.contar_pendientes(usuario),
                 'usuario_acceso': {
                     'rol_id': usuario.rol_id,
-                    'es_admin': usuario.rol_id == 1,
+                    'permisos': permisos_de(usuario),
                     'financiera_id': usuario.financiera_id,
+                    # Su entidad principal y las adicionales. Con `financiero.ver_todas` no se limita por ellas.
+                    'financiera_ids': sorted(entidades_de(usuario)),
                 },
             }
         )
@@ -76,8 +79,8 @@ class ResumenView(APIView):
 class NotificacionesView(APIView):
     @extend_schema(
         summary='Notificaciones de la campana',
-        description='Administrador: documentos pendientes de aprobar. Resto: documentos de su financiera rechazados o '
-        'revocados en los últimos 30 días. `total` los cuenta todos; `items` trae los 20 más recientes.',
+        description='Quien puede aprobar: documentos pendientes de aprobar. Quien sube: documentos de sus entidades rechazados o '
+        'revocados en los últimos 30 días. Quien solo consulta: sin avisos. `total` los cuenta todos; `items` trae los 20 más recientes.',
         tags=[TAG],
         responses=NotificacionesSerializer,
     )
@@ -89,7 +92,7 @@ class PeriodoView(APIView):
     @extend_schema(
         summary='Estado de cada financiera de una corporación en un periodo',
         description='Resumen (cargadas, faltan, por estado) y una fila por financiera con su documento más reciente. '
-        'El administrador ve todas las financieras; el resto, solo la suya.',
+        'Quien puede ver todas las entidades ve todas las financieras; el resto, solo las suyas.',
         tags=[TAG],
         parameters=[
             OpenApiParameter('anio', int, required=True),
@@ -106,9 +109,11 @@ class PeriodoView(APIView):
 
 
 class ExportarPeriodoView(APIView):
+    permission_classes = [requiere(Permiso.FINANCIERO_EXPORTAR)]
+
     @extend_schema(
         summary='Exportar a Excel el estado de cada financiera en un periodo',
-        description='Mismas filas que `GET /financiero/periodo/` (el administrador, todas las financieras; el resto, solo la suya).',
+        description='Mismas filas que `GET /financiero/periodo/`. Requiere el permiso de exportar (administrador, aprobador y consulta).',
         tags=[TAG],
         parameters=[
             OpenApiParameter('anio', int, required=True),
@@ -129,6 +134,7 @@ class ExportarPeriodoView(APIView):
 
 
 class DocumentosView(APIView):
+    permission_classes = [requiere(Permiso.FINANCIERO_SUBIR, solo_escritura=True)]
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -178,7 +184,7 @@ class DocumentoHistorialView(APIView):
 
 
 class DocumentoAprobarView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.FINANCIERO_APROBAR)]
 
     @extend_schema(summary='Aprobar un estado financiero', tags=[TAG], request=None, responses=DocumentoSerializer)
     def post(self, request: Request, documento_id: int) -> Response:
@@ -187,7 +193,7 @@ class DocumentoAprobarView(APIView):
 
 
 class DocumentoRechazarView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.FINANCIERO_APROBAR)]
 
     @extend_schema(
         summary='Rechazar un estado financiero',
@@ -203,7 +209,7 @@ class DocumentoRechazarView(APIView):
 
 
 class DocumentoRevocarView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.FINANCIERO_APROBAR)]
 
     @extend_schema(
         summary='Revocar un estado financiero aprobado o rechazado',
@@ -219,7 +225,7 @@ class DocumentoRevocarView(APIView):
 
 
 class RangoFechasView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.FINANCIERO_RANGO_FECHAS)]
 
     @extend_schema(
         summary='Fijar el rango de fechas vigente para subir documentos',

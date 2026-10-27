@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.cache import cached
-from apps.core.permissions import EsAdministrador
+from apps.core.permissions import Permiso, requiere
 
 from . import selectors, services
 from .models import Corporacion, Financiera, Rol
@@ -83,7 +83,7 @@ class UsuariosListCreateView(APIView):
     """GET /api/v1/usuarios/ — listar; POST /api/v1/usuarios/ — crear. Todo el endpoint es de administrador."""
 
     # La lista trae correo, celular, dirección y fecha de nacimiento de todas las personas: no es para cualquier usuario.
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.USUARIOS_GESTIONAR)]
 
     @extend_schema(summary='Listar usuarios (solo admin)', tags=[TAG], responses=UsuarioListSerializer(many=True))
     def get(self, request: Request) -> Response:
@@ -100,7 +100,7 @@ class UsuariosListCreateView(APIView):
 class UsuarioDetailView(APIView):
     """GET/PATCH /api/v1/usuarios/{id}/ — ver y editar (solo admin)."""
 
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.USUARIOS_GESTIONAR)]
 
     @extend_schema(summary='Ver un usuario', tags=[TAG], responses=UsuarioListSerializer)
     def get(self, request: Request, pk: int) -> Response:
@@ -117,7 +117,7 @@ class UsuarioDetailView(APIView):
 class UsuarioRestablecerPasswordView(APIView):
     """POST /api/v1/usuarios/{id}/restablecer-password/ — asigna una contraseña temporal (solo admin)."""
 
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.USUARIOS_GESTIONAR)]
 
     @extend_schema(
         summary='Restablecer la contraseña de un usuario',

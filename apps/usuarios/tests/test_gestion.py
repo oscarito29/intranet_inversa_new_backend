@@ -74,6 +74,7 @@ class AutoproteccionDelAdminTests(ApiTestCase):
         self.assertEqual(self._editar_a_si_mismo(name='Admin Nuevo').status_code, 200)
 
     def test_si_puede_desactivar_o_degradar_a_otro_administrador(self):
+        crear_usuario(rol_id=1, email='tercero.admin@inversa.hn')  # con tres, quitar uno deja los dos que se exigen
         otro = crear_usuario(rol_id=1, email='otro.admin@inversa.hn')
 
         respuesta = self.cliente_admin.patch(reverse('usuarios-detail', args=[otro.pk]), {'estado': 'I', 'rol_id': 2}, format='json')

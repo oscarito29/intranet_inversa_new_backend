@@ -4,12 +4,12 @@ from django.utils import timezone
 
 from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
+from apps.usuarios.alcance import puede_subir_a
 from apps.usuarios.models import Usuario
 
 from . import selectors
 from .models import Anio, Documento, RangoFecha
 from .notifications import notificar_aprobacion, notificar_rechazo, notificar_revocacion
-from .permissions import usuario_puede_ver_financiera
 from .storage import guardar_documento
 
 # Estados desde los que se permite cada acción. Revocar también aplica a un documento
@@ -32,8 +32,11 @@ def _validar_ventana_de_subida() -> None:
         raise ValidationError('La subida de documentos no está habilitada en esta fecha.')
 
 
-def _obtener_para_transicion(documento_id: int, permitidos: set[str], accion: str) -> Documento:
+def _obtener_para_transicion(usuario: Usuario, documento_id: int, permitidos: set[str], accion: str) -> Documento:
     documento = Documento.objects.select_for_update().get(pk=documento_id)
+    # Separación de funciones: quien subió un documento no lo aprueba, rechaza ni revoca; lo hace otra persona.
+    if (documento.email_usuario_sube or '').strip().lower() == usuario.email.strip().lower():
+        raise PermissionDenied(f'No puedes {accion} un documento que subiste tú. Pídeselo a otra persona con permiso para aprobar.')
     if (documento.doc_aprobado or Documento.PENDIENTE) not in permitidos:
         raise ValidationError(f'No se puede {accion} un documento en su estado actual.')
     return documento
@@ -53,7 +56,7 @@ def subir_documento(
     corporacion_id: str,
     financiera_id: str,
 ) -> Documento:
-    if not usuario_puede_ver_financiera(usuario, financiera_id):
+    if not puede_subir_a(usuario, financiera_id):
         raise PermissionDenied('No tienes acceso a esta financiera.')
     _validar_ventana_de_subida()
 
@@ -77,7 +80,7 @@ def subir_documento(
 
 @transaction.atomic
 def aprobar_documento(usuario: Usuario, documento_id: int) -> Documento:
-    documento = _obtener_para_transicion(documento_id, ESTADOS_PARA_APROBAR, 'aprobar')
+    documento = _obtener_para_transicion(usuario, documento_id, ESTADOS_PARA_APROBAR, 'aprobar')
     documento.doc_aprobado = Documento.APROBADO
     documento.email_usuario_aprueba = usuario.email
     documento.fecha_aprueba = timezone.now()
@@ -93,7 +96,7 @@ def rechazar_documento(usuario: Usuario, documento_id: int, motivo: str) -> Docu
     if not motivo:
         raise ValidationError({'motivo': 'El motivo es requerido.'})
 
-    documento = _obtener_para_transicion(documento_id, ESTADOS_PARA_RECHAZAR, 'rechazar')
+    documento = _obtener_para_transicion(usuario, documento_id, ESTADOS_PARA_RECHAZAR, 'rechazar')
     documento.doc_aprobado = Documento.RECHAZADO
     documento.email_usuario_rechaza = usuario.email
     documento.motivo_rechazo = motivo
@@ -110,7 +113,7 @@ def revocar_documento(usuario: Usuario, documento_id: int, motivo: str) -> Docum
     if not motivo:
         raise ValidationError({'motivo': 'El motivo es requerido.'})
 
-    documento = _obtener_para_transicion(documento_id, ESTADOS_PARA_REVOCAR, 'revocar')
+    documento = _obtener_para_transicion(usuario, documento_id, ESTADOS_PARA_REVOCAR, 'revocar')
     documento.doc_aprobado = Documento.REVOCADO
     documento.motivo_desaprueba = motivo
     documento.fecha_desaprueba = timezone.now()

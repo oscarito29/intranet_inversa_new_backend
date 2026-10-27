@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.core.campos import ArchivoUrlField
+from apps.core.permissions import permisos_del_rol
 from apps.documentos.models import Etiqueta, EtiquetaRol
 from apps.usuarios.models import Rol, Usuario
 
@@ -8,9 +9,15 @@ from .models import Actividad, Comunicado, Imagen
 
 
 class RolSerializer(serializers.ModelSerializer):
+    permisos = serializers.SerializerMethodField()
+
     class Meta:
         model = Rol
-        fields = ('id', 'name')
+        fields = ('id', 'name', 'permisos')
+
+    def get_permisos(self, rol: Rol) -> list[str]:
+        """Lo que el rol permite, de la misma tabla que usan las vistas: la pantalla de roles no repite esa tabla."""
+        return sorted(str(permiso) for permiso in permisos_del_rol(rol.id))
 
 
 class EtiquetaSerializer(serializers.ModelSerializer):

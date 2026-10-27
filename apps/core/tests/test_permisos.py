@@ -1,19 +1,30 @@
 """
-Matriz de permisos: quién puede llamar a cada endpoint, método por método.
+Matriz de permisos: quién puede llamar a cada endpoint, método por método y rol por rol.
 
 La tabla `ACCESO` se escribe a mano a propósito: cada endpoint nuevo (o cada método nuevo de uno existente) hace
-fallar `test_la_tabla_cubre_todas_las_rutas` hasta que alguien decida y anote quién puede usarlo. Después, las pruebas
-llaman de verdad a cada ruta como anónimo, como usuario normal y como administrador y comprueban que coincide.
+fallar `test_la_tabla_cubre_todas_las_rutas` hasta que alguien decida y anote qué permiso pide. Después, las pruebas
+llaman de verdad a cada ruta como anónimo y como una persona de cada rol, y comprueban que coincide con
+`PERMISOS_ESPERADOS`, que también se escribe a mano: cambiar lo que un rol puede hacer exige cambiarlo aquí a propósito.
 """
 
 from django.urls import URLPattern, URLResolver, get_resolver, reverse
 from rest_framework.test import APIClient
 
-from apps.core.testing import ApiTestCase, cliente_de
+from apps.core.permissions import PERMISOS_POR_ROL, ROL_ADMIN, ROL_APROBADOR, ROL_CONSULTA, ROL_USUARIO, Permiso
+from apps.core.testing import ApiTestCase, cliente_de, crear_usuario
 
 PUBLICO = 'publico'  # sin sesión
 AUTENTICADO = 'autenticado'  # cualquier persona con sesión; lo que ve lo acota el servidor (por rol o por entidad)
-ADMIN = 'admin'  # solo rol Administrador
+# Cualquier otro valor es un `Permiso`: solo los roles que lo tienen pueden llamar a esa ruta.
+
+# Lo que cada rol puede hacer. Es la tabla de `PLAN_MEJORAS.md` (3.12), copiada a mano.
+PERMISOS_ESPERADOS = {
+    ROL_ADMIN: set(Permiso),
+    ROL_APROBADOR: {Permiso.FINANCIERO_VER_TODAS, Permiso.FINANCIERO_APROBAR, Permiso.FINANCIERO_EXPORTAR},
+    ROL_CONSULTA: {Permiso.FINANCIERO_VER_TODAS, Permiso.FINANCIERO_EXPORTAR},
+    ROL_USUARIO: {Permiso.FINANCIERO_SUBIR},
+}
+NOMBRES_DE_ROL = {ROL_ADMIN: 'Administrador', ROL_APROBADOR: 'Aprobador', ROL_CONSULTA: 'Consulta', ROL_USUARIO: 'Usuario'}
 
 ID_INEXISTENTE = 999_999
 
@@ -27,10 +38,10 @@ ACCESO: dict[str, tuple[tuple, dict[str, str]]] = {
     'perfil': ((), {'GET': AUTENTICADO, 'PATCH': AUTENTICADO}),
     'perfil-foto': ((), {'POST': AUTENTICADO}),
     'cambiar-password': ((), {'POST': AUTENTICADO}),
-    'usuarios-list-create': ((), {'GET': ADMIN, 'POST': ADMIN}),
+    'usuarios-list-create': ((), {'GET': Permiso.USUARIOS_GESTIONAR, 'POST': Permiso.USUARIOS_GESTIONAR}),
     'usuarios-directorio': ((), {'GET': AUTENTICADO}),
-    'usuarios-detail': ((ID_INEXISTENTE,), {'GET': ADMIN, 'PATCH': ADMIN}),
-    'usuarios-restablecer-password': ((ID_INEXISTENTE,), {'POST': ADMIN}),
+    'usuarios-detail': ((ID_INEXISTENTE,), {'GET': Permiso.USUARIOS_GESTIONAR, 'PATCH': Permiso.USUARIOS_GESTIONAR}),
+    'usuarios-restablecer-password': ((ID_INEXISTENTE,), {'POST': Permiso.USUARIOS_GESTIONAR}),
     'usuarios-roles': ((), {'GET': AUTENTICADO}),
     'usuarios-financieras': ((), {'GET': AUTENTICADO}),
     'usuarios-corporaciones': ((), {'GET': AUTENTICADO}),
@@ -38,31 +49,31 @@ ACCESO: dict[str, tuple[tuple, dict[str, str]]] = {
     'financiero-resumen': ((), {'GET': AUTENTICADO}),
     'financiero-notificaciones': ((), {'GET': AUTENTICADO}),
     'financiero-periodo': ((), {'GET': AUTENTICADO}),
-    'financiero-exportar': ((), {'GET': AUTENTICADO}),
-    'financiero-documentos': ((), {'GET': AUTENTICADO, 'POST': AUTENTICADO}),
+    'financiero-exportar': ((), {'GET': Permiso.FINANCIERO_EXPORTAR}),
+    'financiero-documentos': ((), {'GET': AUTENTICADO, 'POST': Permiso.FINANCIERO_SUBIR}),
     'financiero-historial': ((ID_INEXISTENTE,), {'GET': AUTENTICADO}),
-    'financiero-aprobar': ((ID_INEXISTENTE,), {'POST': ADMIN}),
-    'financiero-rechazar': ((ID_INEXISTENTE,), {'POST': ADMIN}),
-    'financiero-revocar': ((ID_INEXISTENTE,), {'POST': ADMIN}),
-    'financiero-rango-fechas': ((), {'POST': ADMIN}),
-    'documentos-categorias': ((), {'GET': AUTENTICADO, 'POST': ADMIN}),
-    'documentos-categoria-detalle': ((ID_INEXISTENTE,), {'PUT': ADMIN, 'PATCH': ADMIN, 'DELETE': ADMIN}),
+    'financiero-aprobar': ((ID_INEXISTENTE,), {'POST': Permiso.FINANCIERO_APROBAR}),
+    'financiero-rechazar': ((ID_INEXISTENTE,), {'POST': Permiso.FINANCIERO_APROBAR}),
+    'financiero-revocar': ((ID_INEXISTENTE,), {'POST': Permiso.FINANCIERO_APROBAR}),
+    'financiero-rango-fechas': ((), {'POST': Permiso.FINANCIERO_RANGO_FECHAS}),
+    'documentos-categorias': ((), {'GET': AUTENTICADO, 'POST': Permiso.DOCUMENTOS_GESTIONAR}),
+    'documentos-categoria-detalle': ((ID_INEXISTENTE,), {'PUT': Permiso.DOCUMENTOS_GESTIONAR, 'PATCH': Permiso.DOCUMENTOS_GESTIONAR, 'DELETE': Permiso.DOCUMENTOS_GESTIONAR}),
     'documentos-etiquetas': ((), {'GET': AUTENTICADO}),
     'documentos-docs-etiquetas': ((), {'GET': AUTENTICADO}),
-    'documentos-documentos': ((), {'GET': AUTENTICADO, 'POST': ADMIN}),
+    'documentos-documentos': ((), {'GET': AUTENTICADO, 'POST': Permiso.DOCUMENTOS_GESTIONAR}),
     'documentos-exportar': ((), {'GET': AUTENTICADO}),
-    'documentos-reemplazar': ((ID_INEXISTENTE,), {'POST': ADMIN}),
+    'documentos-reemplazar': ((ID_INEXISTENTE,), {'POST': Permiso.DOCUMENTOS_GESTIONAR}),
     'configuracion-roles': ((), {'GET': AUTENTICADO}),
-    'configuracion-etiquetas': ((), {'GET': AUTENTICADO, 'POST': ADMIN}),
-    'configuracion-etiqueta-detail': ((ID_INEXISTENTE,), {'DELETE': ADMIN}),
+    'configuracion-etiquetas': ((), {'GET': AUTENTICADO, 'POST': Permiso.CONTENIDO_GESTIONAR}),
+    'configuracion-etiqueta-detail': ((ID_INEXISTENTE,), {'DELETE': Permiso.CONTENIDO_GESTIONAR}),
     'configuracion-etiqueta-roles': ((), {'GET': AUTENTICADO}),
-    'configuracion-imagenes': ((), {'GET': AUTENTICADO, 'POST': ADMIN}),
-    'configuracion-imagen-detail': ((ID_INEXISTENTE,), {'PATCH': ADMIN, 'DELETE': ADMIN}),
-    'configuracion-comunicados': ((), {'GET': AUTENTICADO, 'POST': ADMIN}),
-    'configuracion-comunicado-detail': ((ID_INEXISTENTE,), {'PATCH': ADMIN, 'DELETE': ADMIN}),
-    'configuracion-actividades': ((), {'GET': AUTENTICADO, 'POST': ADMIN}),
-    'configuracion-actividad-detail': ((ID_INEXISTENTE,), {'PATCH': ADMIN, 'DELETE': ADMIN}),
-    'configuracion-bitacora': ((), {'GET': ADMIN}),
+    'configuracion-imagenes': ((), {'GET': AUTENTICADO, 'POST': Permiso.CONTENIDO_GESTIONAR}),
+    'configuracion-imagen-detail': ((ID_INEXISTENTE,), {'PATCH': Permiso.CONTENIDO_GESTIONAR, 'DELETE': Permiso.CONTENIDO_GESTIONAR}),
+    'configuracion-comunicados': ((), {'GET': AUTENTICADO, 'POST': Permiso.CONTENIDO_GESTIONAR}),
+    'configuracion-comunicado-detail': ((ID_INEXISTENTE,), {'PATCH': Permiso.CONTENIDO_GESTIONAR, 'DELETE': Permiso.CONTENIDO_GESTIONAR}),
+    'configuracion-actividades': ((), {'GET': AUTENTICADO, 'POST': Permiso.CONTENIDO_GESTIONAR}),
+    'configuracion-actividad-detail': ((ID_INEXISTENTE,), {'PATCH': Permiso.CONTENIDO_GESTIONAR, 'DELETE': Permiso.CONTENIDO_GESTIONAR}),
+    'configuracion-bitacora': ((), {'GET': Permiso.BITACORA_VER}),
     'configuracion-cumpleanos': ((), {'GET': AUTENTICADO}),
 }
 
@@ -118,22 +129,28 @@ class MatrizDeAccesoTests(ApiTestCase):
                 else:
                     self.assertEqual(estado, 401)
 
-    def test_un_usuario_normal_no_entra_a_lo_de_administrador(self):
-        for nombre, metodo, nivel in self._casos():
-            with self.subTest(ruta=nombre, metodo=metodo):
-                estado = _llamar(self.cliente_usuario, metodo, nombre).status_code
-                if nivel == ADMIN:
-                    self.assertEqual(estado, 403)
-                else:
-                    self.assertNotIn(estado, (401, 403))
+    def test_cada_rol_entra_solo_a_lo_que_su_permiso_permite(self):
+        for rol, permisos in PERMISOS_ESPERADOS.items():
+            cliente = cliente_de(crear_usuario(rol_id=rol, email=f'rol{rol}@inversa.hn'))
+            for nombre, metodo, nivel in self._casos():
+                if nivel == PUBLICO:
+                    continue
+                with self.subTest(rol=NOMBRES_DE_ROL[rol], ruta=nombre, metodo=metodo):
+                    estado = _llamar(cliente, metodo, nombre).status_code
+                    if nivel == AUTENTICADO or nivel in permisos:
+                        self.assertNotIn(estado, (401, 403))
+                    else:
+                        self.assertEqual(estado, 403)
 
-    def test_el_administrador_entra_a_todo(self):
-        for nombre, metodo, nivel in self._casos():
-            if nivel == PUBLICO:
-                continue
-            with self.subTest(ruta=nombre, metodo=metodo):
-                estado = _llamar(self.cliente_admin, metodo, nombre).status_code
-                self.assertNotIn(estado, (401, 403))
+    def test_el_catalogo_de_permisos_es_el_que_se_decidio(self):
+        self.assertEqual({rol: set(permisos) for rol, permisos in PERMISOS_POR_ROL.items()}, PERMISOS_ESPERADOS)
+
+    def test_todo_permiso_lo_usa_alguna_ruta_o_el_alcance_de_los_datos(self):
+        # Estos dos no protegen una ruta: deciden QUÉ ve la persona dentro de una ruta que ya es de cualquiera.
+        de_alcance = {Permiso.FINANCIERO_VER_TODAS, Permiso.DOCUMENTOS_VER_TODOS}
+        usados = {nivel for _, metodos in ACCESO.values() for nivel in metodos.values() if isinstance(nivel, Permiso)}
+
+        self.assertEqual(usados | de_alcance, set(Permiso), 'Hay un permiso que ninguna ruta pide: sobra o falta anotarlo en ACCESO.')
 
     def test_un_token_invalido_es_401_y_no_entra_a_nada(self):
         cliente = APIClient()
@@ -146,8 +163,6 @@ class MatrizDeAccesoTests(ApiTestCase):
 
     def test_un_usuario_inactivo_con_token_vigente_no_entra(self):
         from rest_framework_simplejwt.tokens import AccessToken
-
-        from apps.core.testing import crear_usuario
 
         inactivo = crear_usuario(estado='I', email='inactivo@inversa.hn')
         cliente = APIClient()

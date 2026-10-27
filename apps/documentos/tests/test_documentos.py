@@ -6,7 +6,7 @@ from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.core.testing import ApiTestCase
+from apps.core.testing import ApiTestCase, cliente_de, crear_usuario
 from apps.documentos.models import Category, DocsEtiqueta, Etiqueta, EtiquetaRol, Upload
 
 
@@ -246,3 +246,19 @@ class VisibilidadPorEtiquetaTests(ApiTestCase):
         EtiquetaRol.objects.create(etiqueta=self.etiqueta_admin, rol_id=2)
 
         self.assertIn('restringido.pdf', self._nombres(self.cliente_usuario))
+
+    def test_los_roles_nuevos_ven_solo_lo_sin_etiquetas_hasta_que_se_les_asigna_una_etiqueta(self):
+        # El Aprobador (3) y Consulta (4) no tienen filas en `etiqueta_rol` al crearse: se las da el administrador en Etiquetas.
+        for rol in (3, 4):
+            with self.subTest(rol=rol):
+                cliente = cliente_de(crear_usuario(rol_id=rol, email=f'rol{rol}@inversa.hn'))
+                self.assertEqual(self._nombres(cliente), {'sin-etiquetas.pdf'})
+                EtiquetaRol.objects.create(etiqueta=self.etiqueta_publica, rol_id=rol)
+                self.assertEqual(self._nombres(cliente), {'sin-etiquetas.pdf', 'publico.pdf', 'mixto.pdf'})
+
+    def test_un_aprobador_o_consulta_no_sube_ni_reemplaza_documentos(self):
+        for rol in (3, 4):
+            with self.subTest(rol=rol):
+                cliente = cliente_de(crear_usuario(rol_id=rol, email=f'rol{rol}@inversa.hn'))
+                datos = {'name': 'Nuevo', 'area': self.categoria.id, 'file': _pdf()}
+                self.assertEqual(cliente.post(reverse('documentos-documentos'), datos, format='multipart').status_code, 403)

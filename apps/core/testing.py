@@ -14,9 +14,11 @@ _contador = itertools.count(1)
 
 
 def crear_catalogos() -> dict:
-    """Roles, una corporación con dos financieras, un año y un mes."""
+    """Los cuatro roles, una corporación con dos financieras, un año y un mes."""
     rol_admin, _ = Rol.objects.get_or_create(id=1, defaults={'name': 'Admin'})
     rol_usuario, _ = Rol.objects.get_or_create(id=2, defaults={'name': 'User'})
+    Rol.objects.get_or_create(id=3, defaults={'name': 'Aprobador'})
+    Rol.objects.get_or_create(id=4, defaults={'name': 'Consulta'})
     corporacion, _ = Corporacion.objects.get_or_create(id='001', defaults={'tipo_corporacion': 'FINANCIERAS'})
     otra_corporacion, _ = Corporacion.objects.get_or_create(id='002', defaults={'tipo_corporacion': 'OTROS'})
     fin_a, _ = Financiera.objects.get_or_create(id='001', defaults={'nombre': 'FINANCIERA A', 'corporacion': corporacion})

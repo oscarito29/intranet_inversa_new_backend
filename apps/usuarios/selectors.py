@@ -13,7 +13,7 @@ def descripcion_cambio_password(email: str) -> str:
 
 
 def listar_usuarios() -> QuerySet[Usuario]:
-    return Usuario.objects.order_by('name')
+    return Usuario.objects.prefetch_related('entidades_adicionales').order_by('name')
 
 
 DIRECTORIO_MAXIMO = 200
@@ -35,7 +35,7 @@ def listar_directorio(texto: str = '', financiera_id: str = '') -> dict:
 
 
 def obtener_usuario(usuario_id: int) -> Usuario:
-    return Usuario.objects.get(pk=usuario_id)
+    return Usuario.objects.prefetch_related('entidades_adicionales').get(pk=usuario_id)
 
 
 def ultimo_cambio_de_password(usuario: Usuario) -> datetime | None:

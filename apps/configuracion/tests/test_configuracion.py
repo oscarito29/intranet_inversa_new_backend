@@ -36,6 +36,13 @@ class EscriturasSoloAdminTests(ApiTestCase):
         for nombre, datos, formato in escrituras:
             self.assertEqual(self.cliente_usuario.post(reverse(nombre), datos, format=formato).status_code, 403, nombre)
 
+    def test_los_roles_dicen_que_permiten(self):
+        roles = {rol['id']: rol for rol in self.cliente_usuario.get(reverse('configuracion-roles')).data}
+
+        self.assertEqual(roles[3]['permisos'], ['financiero.aprobar', 'financiero.exportar', 'financiero.ver_todas'])
+        self.assertEqual(roles[2]['permisos'], ['financiero.subir'])
+        self.assertEqual(len(roles[1]['permisos']), 10)
+
     def test_un_usuario_normal_no_edita_ni_elimina(self):
         comunicado = Comunicado.objects.create(titulo='t', contenido='c', imagen='https://s3/x.png', usuario_sube='a', fecha_subida=timezone.localdate())
         etiqueta = Etiqueta.objects.create(etiqueta_nombre='E')

@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 
 from apps.core.cache import cached
 from apps.core.exportacion import TIPO_XLSX, generar_xlsx, respuesta_xlsx
-from apps.core.permissions import AdminParaEscritura, EsAdministrador
+from apps.core.permissions import Permiso, requiere
 
 from . import selectors, services
 from .serializers import (
@@ -28,7 +28,7 @@ TTL_CATALOGOS = 60 * 5
 
 
 class CategoriasView(APIView):
-    permission_classes = [AdminParaEscritura]
+    permission_classes = [requiere(Permiso.DOCUMENTOS_GESTIONAR, solo_escritura=True)]
 
     @extend_schema(summary='Listar categorías', tags=[TAG], responses=CategorySerializer(many=True))
     def get(self, request: Request) -> Response:
@@ -48,7 +48,7 @@ class CategoriasView(APIView):
 
 
 class CategoriaDetailView(APIView):
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.DOCUMENTOS_GESTIONAR)]
 
     @extend_schema(summary='Actualizar categoría', tags=[TAG], request=CategoryWriteSerializer, responses=CategorySerializer)
     def put(self, request: Request, category_id: int) -> Response:
@@ -119,7 +119,7 @@ class DocumentosExportarView(APIView):
 
 class DocumentosView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [AdminParaEscritura]
+    permission_classes = [requiere(Permiso.DOCUMENTOS_GESTIONAR, solo_escritura=True)]
 
     @extend_schema(
         summary='Listar, paginados, los documentos vigentes visibles para el rol del usuario',
@@ -176,7 +176,7 @@ class DocumentosView(APIView):
 
 class DocumentoReemplazarView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [EsAdministrador]
+    permission_classes = [requiere(Permiso.DOCUMENTOS_GESTIONAR)]
 
     @extend_schema(
         summary='Reemplazar (versionar) un documento institucional — solo Admin',

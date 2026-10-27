@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, QuerySet
 
-from apps.core.permissions import ROL_ADMIN
+from apps.core.permissions import Permiso, tiene_permiso
 from apps.usuarios.models import Usuario
 
 from .models import Category, DocsEtiqueta, Etiqueta, EtiquetaRol, Upload
@@ -30,11 +30,11 @@ def listar_etiquetas():
 
 def listar_documentos(usuario: Usuario) -> QuerySet[Upload]:
     """
-    El admin ve todo. El resto ve los documentos con al menos una etiqueta permitida para
-    su rol (`etiqueta_rol`) y los que no tienen etiquetas.
+    Quien tiene el permiso de ver todos (el administrador) ve todo. El resto ve los documentos con al menos una
+    etiqueta permitida para su rol (`etiqueta_rol`) y los que no tienen etiquetas.
     """
     consulta = Upload.objects.select_related('area').order_by('-fecha')
-    if usuario.rol_id == ROL_ADMIN:
+    if tiene_permiso(usuario, Permiso.DOCUMENTOS_VER_TODOS):
         return consulta
 
     con_etiquetas = DocsEtiqueta.objects.values('documento_id')

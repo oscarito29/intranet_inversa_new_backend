@@ -104,3 +104,23 @@ class Usuario(AbstractBaseUser):
 
     def has_module_perms(self, app_label: str) -> bool:
         return self.rol_id == 1
+
+
+class UsuarioEntidad(models.Model):
+    """
+    Tabla NUEVA `usuario_entidad` (la crea una migración de Django; el sistema PHP no la conoce): las entidades
+    ADICIONALES de una persona. Su entidad principal sigue en `user.userFinancieraId`.
+
+    Sin restricciones de clave foránea en la base (`db_constraint=False`): los tipos y la colación de las tablas
+    heredadas no siempre coinciden y MySQL se niega a crear la restricción. La integridad la cuida el servicio.
+    """
+
+    usuario = models.ForeignKey(Usuario, db_column='usuario_id', on_delete=models.CASCADE, related_name='entidades_adicionales', db_constraint=False)
+    financiera = models.ForeignKey(Financiera, db_column='financiera_id', on_delete=models.DO_NOTHING, related_name='+', db_constraint=False)
+
+    class Meta:
+        db_table = 'usuario_entidad'
+        constraints = [models.UniqueConstraint(fields=['usuario', 'financiera'], name='usuario_entidad_unica')]
+
+    def __str__(self) -> str:
+        return f'{self.usuario_id} - {self.financiera_id}'

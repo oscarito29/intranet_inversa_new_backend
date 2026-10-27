@@ -5,8 +5,10 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from apps.core.campos import ArchivoUrlField
+from apps.core.permissions import PERMISOS_POR_ROL, Permiso, permisos_de, tiene_permiso
 
 from . import selectors
+from .alcance import entidades_de
 from .models import Corporacion, Financiera, Rol, Usuario
 
 
@@ -16,6 +18,8 @@ class UsuarioSerializer(serializers.ModelSerializer):
     rol_id = serializers.IntegerField(source='rol.id', read_only=True)
     rol_nombre = serializers.CharField(source='rol.name', read_only=True)
     financiera_id = serializers.CharField(source='financiera.id', read_only=True)
+    permisos = serializers.SerializerMethodField()
+    financiera_ids = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
@@ -26,9 +30,19 @@ class UsuarioSerializer(serializers.ModelSerializer):
             'rol_id',
             'rol_nombre',
             'financiera_id',
+            'financiera_ids',
+            'permisos',
             'marca_id',
             'picture',
         )
+
+    def get_permisos(self, obj: Usuario) -> list[str]:
+        """Lo que el rol permite; el frontend lo usa para mostrar u ocultar menús y botones (el servidor siempre lo vuelve a comprobar)."""
+        return permisos_de(obj)
+
+    def get_financiera_ids(self, obj: Usuario) -> list[str]:
+        """Su entidad principal y las adicionales. Quien puede ver todas (`financiero.ver_todas`) no se limita por ellas."""
+        return sorted(entidades_de(obj))
 
 
 class PerfilSerializer(serializers.ModelSerializer):
@@ -55,7 +69,7 @@ class PerfilSerializer(serializers.ModelSerializer):
         )
 
     def get_puede_editar_email(self, obj: Usuario) -> bool:
-        return obj.rol_id != 2
+        return tiene_permiso(obj, Permiso.USUARIOS_GESTIONAR)
 
     def get_ultimo_cambio_password(self, obj: Usuario) -> datetime | None:
         """Fecha del último cambio de contraseña hecho desde la intranet; `None` si nunca se cambió aquí."""
@@ -141,6 +155,7 @@ class UsuarioListSerializer(serializers.ModelSerializer):
 
     userFinancieraId = serializers.CharField(source='financiera_id')
     rol_id = serializers.IntegerField()
+    entidades_adicionales = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
@@ -154,8 +169,13 @@ class UsuarioListSerializer(serializers.ModelSerializer):
             'rol_id',
             'estado',
             'userFinancieraId',
+            'entidades_adicionales',
             'fecha_nacimiento',
         )
+
+    def get_entidades_adicionales(self, obj: Usuario) -> list[str]:
+        # `prefetch_related` en `selectors.listar_usuarios`: sin una consulta por persona.
+        return sorted(str(entidad.financiera_id) for entidad in obj.entidades_adicionales.all())
 
 
 class UsuarioWriteSerializer(serializers.ModelSerializer):
@@ -165,6 +185,8 @@ class UsuarioWriteSerializer(serializers.ModelSerializer):
     rol_id = serializers.IntegerField()
     # allow_blank=True porque el frontend manda '' al editar sin cambiar la contraseña.
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    # Las demás entidades de la persona (la principal es `userFinancieraId`). Si no llega, no se tocan; `[]` las quita todas.
+    entidades_adicionales = serializers.ListField(child=serializers.CharField(max_length=11), required=False, write_only=True)
 
     class Meta:
         model = Usuario
@@ -177,12 +199,28 @@ class UsuarioWriteSerializer(serializers.ModelSerializer):
             'rol_id',
             'estado',
             'userFinancieraId',
+            'entidades_adicionales',
             'fecha_nacimiento',
             'password',
         )
         read_only_fields = ('id',)
 
+    def validate_rol_id(self, valor: int) -> int:
+        # Solo roles con permisos definidos (`apps/core/permissions.py`): así tampoco entra el 5, que el PHP toma por administrador.
+        if valor not in PERMISOS_POR_ROL or not Rol.objects.filter(pk=valor).exists():
+            raise serializers.ValidationError('Ese rol no existe.')
+        return valor
+
+    def validate_entidades_adicionales(self, valor: list[str]) -> list[str]:
+        unicas = list(dict.fromkeys(valor))
+        existentes = set(Financiera.objects.filter(pk__in=unicas).values_list('pk', flat=True))
+        desconocidas = [entidad for entidad in unicas if entidad not in existentes]
+        if desconocidas:
+            raise serializers.ValidationError(f'No existen estas entidades: {", ".join(desconocidas)}.')
+        return unicas
+
     def create(self, validated_data):
+        validated_data.pop('entidades_adicionales', None)  # las guarda el servicio, junto con la bitácora
         password = validated_data.pop('password', None)
         if not password:
             raise serializers.ValidationError({'password': 'La contraseña es requerida al crear un usuario.'})
@@ -200,6 +238,7 @@ class UsuarioWriteSerializer(serializers.ModelSerializer):
         return usuario
 
     def update(self, instance, validated_data):
+        validated_data.pop('entidades_adicionales', None)
         password = validated_data.pop('password', None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
