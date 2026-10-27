@@ -19,6 +19,7 @@ ID_INEXISTENTE = 999_999
 
 # nombre de la ruta → argumentos de la URL y, por método, quién puede llamarla
 ACCESO: dict[str, tuple[tuple, dict[str, str]]] = {
+    'salud': ((), {'GET': PUBLICO}),
     'token_obtain_pair': ((), {'POST': PUBLICO}),
     'token_refresh': ((), {'POST': PUBLICO}),
     'logout': ((), {'POST': PUBLICO}),

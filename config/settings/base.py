@@ -5,6 +5,8 @@ from pathlib import Path
 
 import environ
 
+from .observabilidad import configuracion_de_logs
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env()
@@ -161,6 +163,9 @@ ADMIN_ENABLED = False
 REFRESH_TOKEN_COOKIE_NAME = 'refresh_token'
 REFRESH_TOKEN_COOKIE_SECURE = True
 REFRESH_TOKEN_COOKIE_SAMESITE = 'Lax'
+
+# Logs a la salida estándar (ver observabilidad.py). LOG_LEVEL=DEBUG para investigar; nunca registra consultas SQL.
+LOGGING = configuracion_de_logs(env('LOG_LEVEL', default='INFO'))
 
 # Caché de datos globales (ver apps/core/cache.py). Producción usa Redis.
 CACHES = {

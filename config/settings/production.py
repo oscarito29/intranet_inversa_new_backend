@@ -1,5 +1,6 @@
 from .base import *  # noqa: F403
 from .almacenamiento import opciones_s3, storages_con_s3
+from .observabilidad import iniciar_sentry
 from .validaciones import exigir_clave_secreta
 
 DEBUG = False
@@ -41,6 +42,8 @@ if env.bool('DJANGO_BEHIND_PROXY', default=False):  # noqa: F405
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 SECURE_SSL_REDIRECT = True
+# El balanceador pregunta por la salud del servidor por HTTP simple: si lo redirigiéramos a HTTPS lo daría por caído.
+SECURE_REDIRECT_EXEMPT = [r'^api/v1/salud/$']
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000
@@ -60,3 +63,6 @@ CACHES = {
         'KEY_PREFIX': 'intranet',
     }
 }
+
+# Aviso de errores a Sentry (opcional: sin SENTRY_DSN no se conecta nada). Ver observabilidad.py para lo que NO envía.
+iniciar_sentry(env('SENTRY_DSN', default=''), env('SENTRY_ENVIRONMENT', default='production'), env('APP_VERSION', default=''))  # noqa: F405

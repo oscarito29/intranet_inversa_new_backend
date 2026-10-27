@@ -4,7 +4,10 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from apps.core.views import SaludView
+
 urlpatterns = [
+    path('api/v1/salud/', SaludView.as_view(), name='salud'),
     path('api/v1/auth/', include('apps.usuarios.urls')),
     path('api/v1/usuarios/', include('apps.usuarios.urls_management')),
     path('api/v1/financiero/', include('apps.financial.urls')),
