@@ -1,7 +1,10 @@
+from datetime import datetime
+
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from . import selectors
 from .models import Corporacion, Financiera, Rol, Usuario
 
 
@@ -28,6 +31,7 @@ class PerfilSerializer(serializers.ModelSerializer):
     rol_nombre = serializers.CharField(source='rol.name', read_only=True)
     financiera_nombre = serializers.CharField(source='financiera.nombre', read_only=True)
     puede_editar_email = serializers.SerializerMethodField()
+    ultimo_cambio_password = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
@@ -41,10 +45,15 @@ class PerfilSerializer(serializers.ModelSerializer):
             'financiera_nombre',
             'fecha_nacimiento',
             'puede_editar_email',
+            'ultimo_cambio_password',
         )
 
     def get_puede_editar_email(self, obj: Usuario) -> bool:
         return obj.rol_id != 2
+
+    def get_ultimo_cambio_password(self, obj: Usuario) -> datetime | None:
+        """Fecha del último cambio de contraseña hecho desde la intranet; `None` si nunca se cambió aquí."""
+        return selectors.ultimo_cambio_de_password(obj)
 
 
 class PerfilUpdateSerializer(serializers.Serializer):
