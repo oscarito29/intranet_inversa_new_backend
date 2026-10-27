@@ -164,3 +164,25 @@ class HistorialEventoSerializer(serializers.Serializer):
     fecha = serializers.DateTimeField()
     email = serializers.CharField(allow_null=True)
     motivo = serializers.CharField(allow_null=True)
+
+
+class NotificacionSerializer(serializers.Serializer):
+    """Una entrada de `obtener_notificaciones`: el documento, el tipo de aviso, la fecha del evento y su motivo."""
+
+    documento_id = serializers.IntegerField(source='documento.id')
+    tipo = serializers.ChoiceField(choices=['pendiente', 'rechazado', 'revocado'])
+    nombre_archivo = serializers.CharField(source='documento.nombre_archivo', allow_null=True)
+    financiera_id = serializers.CharField(source='documento.financiera_id')
+    financiera_nombre = serializers.CharField(source='documento.financiera.nombre')
+    anio = serializers.IntegerField(source='documento.anio_id')
+    anio_numero = serializers.IntegerField(source='documento.anio.anio')
+    mes_id = serializers.IntegerField(source='documento.mes_id')
+    mes_nombre = serializers.CharField(source='documento.mes.mes')
+    corporacion_id = serializers.CharField(source='documento.corporacion_id')
+    fecha = serializers.DateTimeField(allow_null=True)
+    motivo = serializers.CharField(allow_null=True)
+
+
+class NotificacionesSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    items = NotificacionSerializer(many=True)

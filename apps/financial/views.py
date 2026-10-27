@@ -16,6 +16,7 @@ from .serializers import (
     DocumentosQuerySerializer,
     HistorialEventoSerializer,
     MesSerializer,
+    NotificacionesSerializer,
     PeriodoFilaSerializer,
     PeriodoQuerySerializer,
     RangoFechasRequestSerializer,
@@ -67,6 +68,18 @@ class ResumenView(APIView):
     )
     def get(self, request: Request) -> Response:
         return Response(selectors.obtener_resumen(request.user))
+
+
+class NotificacionesView(APIView):
+    @extend_schema(
+        summary='Notificaciones de la campana',
+        description='Administrador: documentos pendientes de aprobar. Resto: documentos de su financiera rechazados o '
+        'revocados en los últimos 30 días. `total` los cuenta todos; `items` trae los 20 más recientes.',
+        tags=[TAG],
+        responses=NotificacionesSerializer,
+    )
+    def get(self, request: Request) -> Response:
+        return Response(NotificacionesSerializer(selectors.obtener_notificaciones(request.user)).data)
 
 
 class PeriodoView(APIView):

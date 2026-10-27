@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.core.exceptions import PermissionDenied
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -44,8 +45,13 @@ def _documentos_del_alcance(usuario: Usuario):
     return queryset
 
 
+def _pendientes(queryset):
+    """En la base hay documentos con `doc_aprobado` en NULL y cuentan como pendientes igual que el vacío."""
+    return queryset.filter(Q(doc_aprobado=Documento.PENDIENTE) | Q(doc_aprobado__isnull=True))
+
+
 def contar_pendientes(usuario: Usuario) -> int:
-    return _documentos_del_alcance(usuario).filter(doc_aprobado=Documento.PENDIENTE).count()
+    return _pendientes(_documentos_del_alcance(usuario)).count()
 
 
 def obtener_resumen(usuario: Usuario) -> dict[str, int]:
@@ -59,6 +65,37 @@ def obtener_resumen(usuario: Usuario) -> dict[str, int]:
         'rechazados_mes': queryset.filter(doc_aprobado=Documento.RECHAZADO, fecha_rechaza__gte=inicio_mes).count(),
         'nuevos_semana': queryset.filter(fecha__gte=inicio_semana).count(),
     }
+
+
+MAX_NOTIFICACIONES = 20
+DIAS_DE_NOVEDADES = 30
+
+
+def _aviso(documento: Documento, tipo: str, fecha, motivo: str | None) -> dict:
+    return {'documento': documento, 'tipo': tipo, 'fecha': fecha, 'motivo': motivo}
+
+
+def obtener_notificaciones(usuario: Usuario) -> dict:
+    """
+    Campana de la barra superior. El administrador ve los documentos que esperan su aprobación;
+    el resto, los de su financiera que fueron rechazados o revocados en los últimos 30 días
+    (lo que tiene que corregir). `total` cuenta todos; `items` trae solo los 20 más recientes.
+    """
+    base = _documentos_del_alcance(usuario).select_related('financiera', 'anio', 'mes')
+
+    if usuario.rol_id == ROL_ADMIN:
+        pendientes = _pendientes(base).order_by('-fecha')
+        items = [_aviso(doc, 'pendiente', doc.fecha, None) for doc in pendientes[:MAX_NOTIFICACIONES]]
+        return {'total': pendientes.count(), 'items': items}
+
+    desde = timezone.now() - timedelta(days=DIAS_DE_NOVEDADES)
+    rechazados = base.filter(doc_aprobado=Documento.RECHAZADO, fecha_rechaza__gte=desde)
+    revocados = base.filter(doc_aprobado=Documento.REVOCADO, fecha_desaprueba__gte=desde)
+    items = [_aviso(doc, 'rechazado', doc.fecha_rechaza, doc.motivo_rechazo) for doc in rechazados] + [
+        _aviso(doc, 'revocado', doc.fecha_desaprueba, doc.motivo_desaprueba) for doc in revocados
+    ]
+    items.sort(key=lambda aviso: aviso['fecha'], reverse=True)
+    return {'total': len(items), 'items': items[:MAX_NOTIFICACIONES]}
 
 
 def obtener_documentos(usuario: Usuario, anio: int, mes_id: int, corporacion_id: str, financiera_id: str):

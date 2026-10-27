@@ -7,6 +7,7 @@ from .views import (
     DocumentoRechazarView,
     DocumentoRevocarView,
     DocumentosView,
+    NotificacionesView,
     PeriodoView,
     RangoFechasView,
     ResumenView,
@@ -15,6 +16,7 @@ from .views import (
 urlpatterns = [
     path('catalogos/', CatalogosView.as_view(), name='financiero-catalogos'),
     path('resumen/', ResumenView.as_view(), name='financiero-resumen'),
+    path('notificaciones/', NotificacionesView.as_view(), name='financiero-notificaciones'),
     path('periodo/', PeriodoView.as_view(), name='financiero-periodo'),
     path('documentos/', DocumentosView.as_view(), name='financiero-documentos'),
     path('documentos/<int:documento_id>/historial/', DocumentoHistorialView.as_view(), name='financiero-historial'),
