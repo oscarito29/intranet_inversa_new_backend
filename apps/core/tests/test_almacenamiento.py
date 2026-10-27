@@ -21,6 +21,7 @@ from apps.core.testing import ApiTestCase
 from apps.documentos.models import Upload
 from apps.documentos.tests.test_documentos import _categoria
 from apps.financial.models import Documento
+from apps.core.management.commands.migrar_archivos_legados import clave_en_bucket
 from config.settings.almacenamiento import EXPIRACION_POR_DEFECTO_SEGUNDOS, opciones_s3, storages_con_s3
 
 PDF = b'%PDF-1.4 contenido'
@@ -346,3 +347,69 @@ class MigrarArchivosLegadosTests(ApiTestCase):
         self.assertTrue(self.usuario.picture.startswith('storage:legado/perfiles/'))
         self.assertTrue(Comunicado.objects.get().imagen.startswith('storage:legado/comunicados/'))
         self.assertFalse(io.BytesIO(b'').closed)  # ancla para que el import de io no sobre
+
+
+class ClaveEnBucketTests(SimpleTestCase):
+    def test_reconoce_las_formas_de_url_de_s3(self):
+        casos = {
+            'https://inversa-intranet.s3.amazonaws.com/imagenes/user.png': 'imagenes/user.png',
+            'https://inversa-intranet.s3.us-east-2.amazonaws.com/documentos/a%20b.pdf': 'documentos/a b.pdf',
+            'https://s3.amazonaws.com/inversa-intranet/imagenes/user.png': 'imagenes/user.png',
+            'https://s3.us-east-2.amazonaws.com/inversa-intranet/imagenes/user.png': 'imagenes/user.png',
+        }
+        for url, clave in casos.items():
+            with self.subTest(url=url):
+                self.assertEqual(clave_en_bucket(url, 'inversa-intranet'), clave)
+
+    def test_otro_bucket_u_otro_servidor_no_es_de_este_bucket(self):
+        for url in (
+            'https://otro-bucket.s3.amazonaws.com/imagenes/user.png',
+            'https://inversa-intranet.evil.com/imagenes/user.png',
+            'https://evil.com/inversa-intranet/imagenes/user.png',
+            'https://s3.amazonaws.com/otro/inversa-intranet/user.png',
+            'https://inversa-intranet.s3.amazonaws.com/',
+        ):
+            with self.subTest(url=url):
+                self.assertIsNone(clave_en_bucket(url, 'inversa-intranet'))
+
+
+@override_settings(STORAGES=STORAGE_EN_MEMORIA)
+class MigrarEnSitioTests(ApiTestCase):
+    BUCKET = 'inversa-intranet'
+
+    def setUp(self):
+        super().setUp()
+        self.categoria = _categoria()
+        default_storage.save('documentos/balance.pdf', ContentFile(PDF, name='balance.pdf'))
+        self.documento = Upload.objects.create(fname=f'https://{self.BUCKET}.s3.amazonaws.com/documentos/balance.pdf', name='Balance', area=self.categoria, estado=Upload.ACTIVO, fecha=timezone.now(), tipo='application/pdf', tamanio='1 KB')
+
+    def _correr(self, *argumentos) -> str:
+        salida = StringIO()
+        with mock.patch('apps.core.management.commands.migrar_archivos_legados.urllib.request.urlopen') as abrir:
+            call_command('migrar_archivos_legados', *argumentos, stdout=salida, stderr=salida)
+        self.abrir = abrir
+        return salida.getvalue()
+
+    def test_el_archivo_que_ya_esta_en_el_bucket_no_se_descarga_y_la_fila_apunta_a_su_clave(self):
+        self._correr('--aplicar', '--en-sitio', self.BUCKET)
+
+        self.documento.refresh_from_db()
+        self.assertEqual(self.documento.fname, 'storage:documentos/balance.pdf')
+        self.abrir.assert_not_called()
+        self.assertEqual(self.cliente_admin.get(reverse('documentos-documentos')).data['results'][0]['fname'], 'https://archivos.test/documentos/balance.pdf')
+
+    def test_no_pasa_a_storage_un_archivo_que_no_esta_en_el_bucket(self):
+        default_storage.delete('documentos/balance.pdf')
+
+        texto = self._correr('--aplicar', '--en-sitio', self.BUCKET)
+
+        self.documento.refresh_from_db()
+        self.assertTrue(self.documento.fname.startswith('https://'))
+        self.assertIn('no está en el bucket', texto)
+
+    def test_el_ensayo_marca_lo_que_se_haria_en_sitio_y_no_cambia_nada(self):
+        texto = self._correr('--en-sitio', self.BUCKET)
+
+        self.assertIn('(en sitio)', texto)
+        self.documento.refresh_from_db()
+        self.assertTrue(self.documento.fname.startswith('https://'))
