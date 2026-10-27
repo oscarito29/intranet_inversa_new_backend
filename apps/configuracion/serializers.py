@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.core.campos import ArchivoUrlField
 from apps.documentos.models import Etiqueta, EtiquetaRol
 from apps.usuarios.models import Rol, Usuario
 
@@ -38,12 +39,16 @@ class SaveEtiquetaRequestSerializer(serializers.Serializer):
 
 
 class ImagenSerializer(serializers.ModelSerializer):
+    ruta_img = ArchivoUrlField()
+
     class Meta:
         model = Imagen
         fields = ('id', 'archivo', 'ruta_img', 'puesto', 'creado_en')
 
 
 class ComunicadoSerializer(serializers.ModelSerializer):
+    imagen = ArchivoUrlField()
+
     class Meta:
         model = Comunicado
         fields = ('id', 'titulo', 'contenido', 'imagen', 'usuario_sube', 'fecha_subida')

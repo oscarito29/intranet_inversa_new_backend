@@ -1,4 +1,5 @@
 from .base import *  # noqa: F403
+from .almacenamiento import opciones_s3, storages_con_s3
 from .validaciones import exigir_clave_secreta
 
 DEBUG = False
@@ -6,6 +7,11 @@ DEBUG = False
 # Sin valor por defecto a propósito: con la clave de ejemplo cualquiera podría fabricar tokens de sesión válidos.
 # Si falta la variable de entorno, el servidor no arranca.
 SECRET_KEY = exigir_clave_secreta(env('DJANGO_SECRET_KEY'))  # noqa: F405
+
+# Archivos subidos: con AWS_STORAGE_BUCKET_NAME van a un bucket privado de S3; sin él, al disco (solo para probar).
+_opciones_s3 = opciones_s3(env)  # noqa: F405
+if _opciones_s3:
+    STORAGES = storages_con_s3(_opciones_s3)
 
 API_DOCS_ENABLED = env.bool('API_DOCS_ENABLED', default=False)  # noqa: F405
 ADMIN_ENABLED = env.bool('ADMIN_ENABLED', default=False)  # noqa: F405

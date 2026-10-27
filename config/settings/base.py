@@ -15,6 +15,7 @@ SECRET_KEY = env('DJANGO_SECRET_KEY', default='django-insecure-change-me-in-env'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOCAL_APPS = [
+    'apps.core',
     'apps.usuarios',
     'apps.financial',
     'apps.documentos',

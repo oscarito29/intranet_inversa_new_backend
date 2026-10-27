@@ -4,11 +4,15 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from apps.core.campos import ArchivoUrlField
+
 from . import selectors
 from .models import Corporacion, Financiera, Rol, Usuario
 
 
 class UsuarioSerializer(serializers.ModelSerializer):
+    picture = ArchivoUrlField(allow_null=True)
+
     rol_id = serializers.IntegerField(source='rol.id', read_only=True)
     rol_nombre = serializers.CharField(source='rol.name', read_only=True)
     financiera_id = serializers.CharField(source='financiera.id', read_only=True)
@@ -28,6 +32,8 @@ class UsuarioSerializer(serializers.ModelSerializer):
 
 
 class PerfilSerializer(serializers.ModelSerializer):
+    picture = ArchivoUrlField(allow_null=True)
+
     rol_nombre = serializers.CharField(source='rol.name', read_only=True)
     financiera_nombre = serializers.CharField(source='financiera.nombre', read_only=True)
     puede_editar_email = serializers.SerializerMethodField()
@@ -105,7 +111,7 @@ class DirectorioPersonaSerializer(serializers.Serializer):
     telefono = serializers.CharField(source='phone_number')
     entidad = serializers.CharField(source='financiera.nombre')
     corporacion = serializers.CharField(source='financiera.corporacion.tipo_corporacion')
-    foto = serializers.CharField(source='picture', allow_null=True)
+    foto = ArchivoUrlField(source='picture', allow_null=True)
     cumple_dia = serializers.SerializerMethodField()
     cumple_mes = serializers.SerializerMethodField()
 
@@ -129,6 +135,8 @@ class DirectorioSerializer(serializers.Serializer):
 
 
 class UsuarioListSerializer(serializers.ModelSerializer):
+    picture = ArchivoUrlField(allow_null=True)
+
     """Espejo exacto de `UserDto` en el frontend (`features/users/api/user.dto.ts`)."""
 
     userFinancieraId = serializers.CharField(source='financiera_id')

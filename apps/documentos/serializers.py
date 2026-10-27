@@ -1,7 +1,7 @@
 from django.utils.encoding import filepath_to_uri
 from rest_framework import serializers
 
-from apps.core.archivos import archivo_local_disponible
+from apps.core.archivos import archivo_local_disponible, url_de_valor
 
 from .models import Category, Etiqueta, Upload
 
@@ -43,11 +43,12 @@ class TagSerializer(serializers.ModelSerializer):
 
 def url_de_archivo(fname: str) -> str:
     """
-    `upload.fname` mezcla tres formatos: URLs de S3 y rutas `/media/...` (subidas nuevas) ya sirven tal cual;
+    `upload.fname` mezcla cuatro formatos: `storage:<clave>` (lo que sube este sistema) se resuelve con el storage; URLs de S3 y rutas `/media/...` ya sirven tal cual;
     el resto son nombres sueltos de antes de la migración, servidos desde `media/legacy-documentos/`.
     """
-    if fname.startswith(('http://', 'https://', '/')):
-        return fname
+    resuelto = url_de_valor(fname)
+    if resuelto.startswith(('http://', 'https://', '/')):
+        return resuelto
     return f'/media/legacy-documentos/{filepath_to_uri(fname)}'
 
 

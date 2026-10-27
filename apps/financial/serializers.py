@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.core.campos import ArchivoUrlField
 from apps.usuarios.models import Corporacion, Financiera
 
 from .models import Anio, Documento, Mes, RangoFecha
@@ -41,6 +42,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
     mes_id = serializers.IntegerField()
     corporacion_id = serializers.CharField()
     financiera_id = serializers.CharField()
+    ruta_archivo = ArchivoUrlField()
     doc_aprobado = serializers.SerializerMethodField()
 
     def get_doc_aprobado(self, obj: Documento) -> str:

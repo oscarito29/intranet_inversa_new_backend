@@ -3,14 +3,13 @@ import uuid
 
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.utils import timezone
 
 from django.utils.crypto import get_random_string
 
-from apps.core.archivos import borrar_archivo_local
+from apps.core.archivos import borrar_archivo, guardar_archivo
 from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
 from apps.core.permissions import ROL_ADMIN
@@ -83,12 +82,12 @@ def guardar_foto_perfil(usuario: Usuario, archivo: UploadedFile) -> Usuario:
 
     foto_anterior = usuario.picture
     nombre_seguro = re.sub(r'[^A-Za-z0-9._-]+', '_', nombre)
-    ruta_guardada = default_storage.save(f'perfiles/{usuario.id}_{uuid.uuid4().hex[:8]}_{nombre_seguro}', archivo)
+    valor_guardado = guardar_archivo(f'perfiles/{usuario.id}_{uuid.uuid4().hex[:8]}_{nombre_seguro}', archivo)
 
-    usuario.picture = default_storage.url(ruta_guardada)
+    usuario.picture = valor_guardado
     usuario.updated_at = timezone.now()
     usuario.save(update_fields=['picture', 'updated_at'])
-    borrar_archivo_local(foto_anterior)
+    borrar_archivo(foto_anterior)
     return usuario
 
 

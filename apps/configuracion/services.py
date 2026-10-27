@@ -3,7 +3,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.utils import timezone
 
-from apps.core.archivos import borrar_archivo_local
+from apps.core.archivos import borrar_archivo
 from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
 from apps.documentos.models import DocsEtiqueta, Etiqueta, EtiquetaRol
@@ -52,7 +52,7 @@ def eliminar_imagen(imagen_id: int) -> None:
     imagen = Imagen.objects.get(pk=imagen_id)
     ruta = imagen.ruta_img
     imagen.delete()
-    borrar_archivo_local(ruta)
+    borrar_archivo(ruta)
     invalidar('configuracion-imagenes')
 
 
@@ -73,7 +73,7 @@ def guardar_comunicado(
             comunicado.imagen = storage.guardar_imagen_comunicado(archivo)
         comunicado.save()
         if archivo is not None:
-            borrar_archivo_local(imagen_anterior)
+            borrar_archivo(imagen_anterior)
     else:
         if archivo is None:
             raise ValidationError({'file': 'Se requiere una imagen para publicar un comunicado nuevo.'})
@@ -94,7 +94,7 @@ def eliminar_comunicado(comunicado_id: int) -> None:
     comunicado = Comunicado.objects.get(pk=comunicado_id)
     ruta = comunicado.imagen
     comunicado.delete()
-    borrar_archivo_local(ruta)
+    borrar_archivo(ruta)
     invalidar('configuracion-comunicados')
 
 

@@ -2,9 +2,9 @@ import re
 import uuid
 
 from django.core.exceptions import ValidationError
-from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 
+from apps.core.archivos import guardar_archivo
 from apps.core.subidas import validar_contenido
 
 EXTENSIONES_PERMITIDAS = {'.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.rar'}
@@ -41,5 +41,4 @@ def guardar_documento(
     validar_archivo(archivo)
     nombre_sanitizado = _sanitizar_nombre(archivo.name)
     key = f'documentos/{corporacion_id}/{financiera_id}/{anio}/{mes_id}/{uuid.uuid4().hex}_{nombre_sanitizado}'
-    ruta_guardada = default_storage.save(key, archivo)
-    return default_storage.url(ruta_guardada)
+    return guardar_archivo(key, archivo)

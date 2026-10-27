@@ -2,9 +2,9 @@ import re
 import uuid
 
 from django.core.exceptions import ValidationError
-from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 
+from apps.core.archivos import guardar_archivo
 from apps.core.subidas import validar_contenido
 
 EXTENSIONES_PERMITIDAS = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -28,12 +28,10 @@ def _validar_imagen(archivo: UploadedFile) -> None:
 def guardar_imagen_carrusel(archivo: UploadedFile) -> str:
     _validar_imagen(archivo)
     key = f'imagenes-carrusel/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name)}'
-    ruta_guardada = default_storage.save(key, archivo)
-    return default_storage.url(ruta_guardada)
+    return guardar_archivo(key, archivo)
 
 
 def guardar_imagen_comunicado(archivo: UploadedFile) -> str:
     _validar_imagen(archivo)
     key = f'comunicados/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name)}'
-    ruta_guardada = default_storage.save(key, archivo)
-    return default_storage.url(ruta_guardada)
+    return guardar_archivo(key, archivo)
