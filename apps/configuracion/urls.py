@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    ActividadDetailView,
     ActividadesView,
     ComunicadoDetailView,
     ComunicadosView,
@@ -23,5 +24,6 @@ urlpatterns = [
     path('comunicados/', ComunicadosView.as_view(), name='configuracion-comunicados'),
     path('comunicados/<int:comunicado_id>/', ComunicadoDetailView.as_view(), name='configuracion-comunicado-detail'),
     path('actividades/', ActividadesView.as_view(), name='configuracion-actividades'),
+    path('actividades/<int:actividad_id>/', ActividadDetailView.as_view(), name='configuracion-actividad-detail'),
     path('cumpleanos/', CumpleañosView.as_view(), name='configuracion-cumpleanos'),
 ]

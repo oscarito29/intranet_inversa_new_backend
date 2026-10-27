@@ -4,6 +4,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.core.archivos import borrar_archivo_local
+from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
 from apps.documentos.models import DocsEtiqueta, Etiqueta, EtiquetaRol
 from apps.usuarios.models import Usuario
@@ -98,12 +99,36 @@ def eliminar_comunicado(comunicado_id: int) -> None:
 
 
 @transaction.atomic
-def crear_actividad(fecha, titulo: str, descripcion: str, hora_desde, hora_hasta) -> Actividad:
+def crear_actividad(usuario: Usuario, fecha, titulo: str, descripcion: str, hora_desde, hora_hasta) -> Actividad:
     actividad = Actividad.objects.create(
         fecha=fecha, titulo=titulo, descripcion=descripcion, hora_desde=hora_desde, hora_hasta=hora_hasta
     )
+    registrar_bitacora(usuario.email, 'Creacion', f'Crea la actividad {titulo}')
     invalidar('configuracion-actividades')
     return actividad
+
+
+@transaction.atomic
+def actualizar_actividad(usuario: Usuario, actividad_id: int, datos: dict) -> Actividad:
+    """Solo cambia los campos que llegan; la validación cruzada de horas se hace con los valores finales."""
+    actividad = Actividad.objects.select_for_update().get(pk=actividad_id)
+    for campo, valor in datos.items():
+        setattr(actividad, campo, valor)
+    if actividad.hora_desde and actividad.hora_hasta and actividad.hora_hasta < actividad.hora_desde:
+        raise ValidationError({'hora_hasta': 'La hora final no puede ser anterior a la inicial.'})
+    actividad.save()
+    registrar_bitacora(usuario.email, 'Edicion', f'Modifica la actividad {actividad.titulo}')
+    invalidar('configuracion-actividades')
+    return actividad
+
+
+@transaction.atomic
+def eliminar_actividad(usuario: Usuario, actividad_id: int) -> None:
+    actividad = Actividad.objects.get(pk=actividad_id)
+    titulo = actividad.titulo
+    actividad.delete()
+    registrar_bitacora(usuario.email, 'Eliminacion', f'Elimina la actividad {titulo}')
+    invalidar('configuracion-actividades')
 
 
 @transaction.atomic

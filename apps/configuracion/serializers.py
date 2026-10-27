@@ -61,6 +61,29 @@ class ActividadSerializer(serializers.ModelSerializer):
         fields = ('id', 'fecha', 'titulo', 'descripcion', 'hora_desde', 'hora_hasta')
 
 
+class ActividadWriteSerializer(serializers.Serializer):
+    """Entrada de crear o editar una actividad. Las horas son opcionales; una cadena vacía cuenta como «sin hora»."""
+
+    fecha = serializers.DateField()
+    titulo = serializers.CharField(max_length=255)
+    descripcion = serializers.CharField(required=False, allow_blank=True, default='')
+    hora_desde = serializers.TimeField(required=False, allow_null=True, default=None)
+    hora_hasta = serializers.TimeField(required=False, allow_null=True, default=None)
+
+    def to_internal_value(self, data):
+        datos = data.copy() if hasattr(data, 'copy') else dict(data)
+        for campo in ('hora_desde', 'hora_hasta'):
+            if datos.get(campo) == '':
+                datos[campo] = None
+        return super().to_internal_value(datos)
+
+    def validate(self, attrs):
+        desde, hasta = attrs.get('hora_desde'), attrs.get('hora_hasta')
+        if desde and hasta and hasta < desde:
+            raise serializers.ValidationError({'hora_hasta': 'La hora final no puede ser anterior a la inicial.'})
+        return attrs
+
+
 class CumpleañoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Usuario

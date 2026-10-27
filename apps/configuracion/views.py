@@ -12,6 +12,7 @@ from apps.core.permissions import AdminParaEscritura, EsAdministrador
 from . import selectors, services
 from .serializers import (
     ActividadSerializer,
+    ActividadWriteSerializer,
     ComunicadoSerializer,
     CumpleañoSerializer,
     EtiquetaRolSerializer,
@@ -163,20 +164,29 @@ class ActividadesView(APIView):
             cached('configuracion-actividades:lista', TTL_CATALOGOS, lambda: _datos(ActividadSerializer, selectors.listar_actividades()))
         )
 
-    @extend_schema(summary='Crear una actividad nueva', tags=[TAG], responses={201: ActividadSerializer})
+    @extend_schema(summary='Crear una actividad nueva', tags=[TAG], request=ActividadWriteSerializer, responses={201: ActividadSerializer})
     def post(self, request: Request) -> Response:
-        data = request.data
-        for campo in ('fecha', 'titulo'):
-            if not data.get(campo):
-                raise ValidationError({campo: 'Este campo es requerido.'})
-        actividad = services.crear_actividad(
-            fecha=data['fecha'],
-            titulo=data['titulo'],
-            descripcion=data.get('descripcion', ''),
-            hora_desde=data.get('hora_desde') or None,
-            hora_hasta=data.get('hora_hasta') or None,
-        )
+        serializer = ActividadWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        actividad = services.crear_actividad(request.user, **serializer.validated_data)
         return Response(ActividadSerializer(actividad).data, status=status.HTTP_201_CREATED)
+
+
+class ActividadDetailView(APIView):
+    permission_classes = [EsAdministrador]
+
+    @extend_schema(summary='Editar una actividad', tags=[TAG], request=ActividadWriteSerializer, responses=ActividadSerializer)
+    def patch(self, request: Request, actividad_id: int) -> Response:
+        serializer = ActividadWriteSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        # Con `partial=True` DRF no rellena lo que no llegó: `validated_data` trae solo los campos enviados.
+        actividad = services.actualizar_actividad(request.user, actividad_id, dict(serializer.validated_data))
+        return Response(ActividadSerializer(actividad).data)
+
+    @extend_schema(summary='Eliminar una actividad', tags=[TAG], responses={204: None})
+    def delete(self, request: Request, actividad_id: int) -> Response:
+        services.eliminar_actividad(request.user, actividad_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CumpleañosView(APIView):
