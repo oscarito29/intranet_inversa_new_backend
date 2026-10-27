@@ -31,6 +31,9 @@ def listar_actividades() -> QuerySet[Actividad]:
     return Actividad.objects.all().order_by('fecha')
 
 
+def mes_actual() -> int:
+    return timezone.localdate().month
+
+
 def listar_cumpleanos_del_mes() -> QuerySet[Usuario]:
-    mes_actual = timezone.localdate().month
-    return Usuario.objects.filter(fecha_nacimiento__month=mes_actual).order_by('fecha_nacimiento')
+    return Usuario.objects.filter(fecha_nacimiento__month=mes_actual()).order_by('fecha_nacimiento')
