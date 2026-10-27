@@ -1,12 +1,23 @@
 from datetime import timedelta
 
 from django.core.exceptions import PermissionDenied
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from apps.usuarios.models import Corporacion, Usuario
+from apps.core.permissions import ROL_ADMIN
+from apps.usuarios.models import Corporacion, Financiera, Usuario
 
-from .models import Anio, Documento, Mes, RangoFecha
+from .models import Anio, Bitacora, Documento, Mes, RangoFecha
 from .permissions import usuario_puede_ver_financiera
+
+SIN_CARGAR = 'sin_cargar'
+
+_ESTADO_POR_CODIGO = {
+    Documento.PENDIENTE: 'pendiente',
+    Documento.APROBADO: 'aprobado',
+    Documento.RECHAZADO: 'rechazado',
+    Documento.REVOCADO: 'revocado',
+}
 
 
 def listar_anios():
@@ -25,25 +36,26 @@ def obtener_rango_vigente() -> RangoFecha | None:
     return RangoFecha.objects.order_by('-id').first()
 
 
-def contar_notificaciones_pendientes(usuario: Usuario) -> int:
-    queryset = Documento.objects.filter(doc_aprobado=Documento.PENDIENTE)
-    if usuario.rol_id != 1:
+def _documentos_del_alcance(usuario: Usuario):
+    """Administradores ven todo; el resto solo los de su financiera."""
+    queryset = Documento.objects.all()
+    if usuario.rol_id != ROL_ADMIN:
         queryset = queryset.filter(financiera_id=usuario.financiera_id)
-    return queryset.count()
+    return queryset
+
+
+def contar_pendientes(usuario: Usuario) -> int:
+    return _documentos_del_alcance(usuario).filter(doc_aprobado=Documento.PENDIENTE).count()
 
 
 def obtener_resumen(usuario: Usuario) -> dict[str, int]:
-    """Conteos del dashboard, limitados a la financiera del usuario salvo para administradores."""
     ahora = timezone.now()
     inicio_mes = ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     inicio_semana = (ahora - timedelta(days=ahora.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-
-    queryset = Documento.objects.all()
-    if usuario.rol_id != 1:
-        queryset = queryset.filter(financiera_id=usuario.financiera_id)
+    queryset = _documentos_del_alcance(usuario)
 
     return {
-        'pendientes': queryset.filter(doc_aprobado=Documento.PENDIENTE).count(),
+        'pendientes': contar_pendientes(usuario),
         'rechazados_mes': queryset.filter(doc_aprobado=Documento.RECHAZADO, fecha_rechaza__gte=inicio_mes).count(),
         'nuevos_semana': queryset.filter(fecha__gte=inicio_semana).count(),
     }
@@ -59,3 +71,66 @@ def obtener_documentos(usuario: Usuario, anio: int, mes_id: int, corporacion_id:
         corporacion_id=corporacion_id,
         financiera_id=financiera_id,
     ).order_by('-fecha')
+
+
+def estado_de(documento: Documento) -> str:
+    """Nombre del estado; en la base hay documentos con `doc_aprobado` en NULL y cuentan como pendientes."""
+    return _ESTADO_POR_CODIGO.get(documento.doc_aprobado or Documento.PENDIENTE, 'pendiente')
+
+
+def obtener_periodo(usuario: Usuario, anio: int, mes_id: int, corporacion_id: str) -> dict:
+    """
+    Estado de cada financiera de una corporación en un periodo, con su documento más reciente.
+    El administrador ve todas las financieras; el resto, solo la suya.
+
+    "Cargada" es tener un documento pendiente o aprobado. Sin documento, o con el último
+    rechazado o revocado, la financiera "falta" por cargar uno válido.
+    """
+    financieras = Financiera.objects.filter(corporacion_id=corporacion_id).order_by('nombre')
+    if usuario.rol_id != ROL_ADMIN:
+        financieras = financieras.filter(pk=usuario.financiera_id)
+
+    ultimo_por_financiera: dict[str, Documento] = {}
+    documentos = Documento.objects.filter(
+        anio_id=anio, mes_id=mes_id, corporacion_id=corporacion_id, financiera_id__in=financieras.values('pk')
+    ).order_by('fecha', 'id')
+    for documento in documentos:
+        ultimo_por_financiera[documento.financiera_id] = documento
+
+    filas = []
+    por_estado = {SIN_CARGAR: 0, 'pendiente': 0, 'aprobado': 0, 'rechazado': 0, 'revocado': 0}
+    for financiera in financieras:
+        documento = ultimo_por_financiera.get(financiera.pk)
+        estado = estado_de(documento) if documento else SIN_CARGAR
+        por_estado[estado] += 1
+        filas.append({'financiera': financiera, 'estado': estado, 'documento': documento})
+
+    cargadas = por_estado['pendiente'] + por_estado['aprobado']
+    return {
+        'filas': filas,
+        'resumen': {'total': len(filas), 'cargadas': cargadas, 'faltan': len(filas) - cargadas, 'por_estado': por_estado},
+    }
+
+
+def obtener_historial(usuario: Usuario, documento_id: int) -> list[dict]:
+    """
+    Línea de tiempo de un documento a partir de sus columnas de evento. La revocación no guarda
+    quién la hizo, así que se busca en la bitácora (la entrada que escribe `revocar_documento`).
+    """
+    documento = get_object_or_404(Documento, pk=documento_id)
+    if not usuario_puede_ver_financiera(usuario, documento.financiera_id):
+        raise PermissionDenied('No tienes acceso a los documentos de esta financiera.')
+
+    revocacion = (
+        Bitacora.objects.filter(descripcion=f'Desaprobación de Estado Financiero {documento.id}').order_by('-fecha').first()
+    )
+    eventos = [
+        ('subido', documento.fecha, documento.email_usuario_sube, None),
+        ('aprobado', documento.fecha_aprueba, documento.email_usuario_aprueba, None),
+        ('rechazado', documento.fecha_rechaza, documento.email_usuario_rechaza, documento.motivo_rechazo),
+        ('revocado', documento.fecha_desaprueba, revocacion.usuario if revocacion else None, documento.motivo_desaprueba),
+    ]
+    return [
+        {'tipo': tipo, 'fecha': fecha, 'email': email, 'motivo': motivo}
+        for tipo, fecha, email, motivo in sorted((e for e in eventos if e[1] is not None), key=lambda e: e[1])
+    ]
