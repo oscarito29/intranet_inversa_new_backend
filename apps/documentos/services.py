@@ -15,7 +15,7 @@ from .storage import guardar_documento_institucional, tamanio_legible
 def crear_categoria(usuario: Usuario, name: str, description: str) -> Category:
     if Category.objects.filter(name__iexact=name).exists():
         raise ValidationError({'name': 'Ya existe una categoría con ese nombre.'})
-    categoria = Category.objects.create(name=name, description=description, created_at=timezone.now(), estado='Activo')
+    categoria = Category.objects.create(name=name, description=description, created_at=timezone.now(), estado=Category.ACTIVA)
     registrar_bitacora(usuario.email, 'Creacion', f'Creacion de la categoria {name}')
     invalidar('documentos')
     return categoria
@@ -31,6 +31,20 @@ def actualizar_categoria(usuario: Usuario, category_id: int, name: str, descript
     categoria.modified_at = timezone.now()
     categoria.save(update_fields=['name', 'description', 'modified_at'])
     registrar_bitacora(usuario.email, 'Edicion', f'Modificacion de la categoria {name}')
+    invalidar('documentos')
+    return categoria
+
+
+@transaction.atomic
+def cambiar_estado_categoria(usuario: Usuario, category_id: int, estado: str) -> Category:
+    categoria = Category.objects.select_for_update().get(pk=category_id)
+    if categoria.estado == estado:
+        return categoria
+    categoria.estado = estado
+    categoria.modified_at = timezone.now()
+    categoria.save(update_fields=['estado', 'modified_at'])
+    accion = 'Activa' if estado == Category.ACTIVA else 'Desactiva'
+    registrar_bitacora(usuario.email, 'Edicion', f'{accion} la categoria {categoria.name}')
     invalidar('documentos')
     return categoria
 

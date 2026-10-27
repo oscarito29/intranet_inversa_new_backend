@@ -42,12 +42,16 @@ class EtiquetaRol(models.Model):
 class Category(models.Model):
     """Tabla `category`: clasifica los documentos institucionales (`upload.area`)."""
 
+    # Una categoría inactiva conserva sus documentos pero no admite subir otros nuevos.
+    ACTIVA = 'Activo'
+    INACTIVA = 'Inactivo'
+
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=35, unique=True)
     description = models.CharField(max_length=80)
     created_at = models.DateTimeField()
     modified_at = models.DateTimeField(null=True, blank=True)
-    estado = models.CharField(max_length=50, default='Activo')
+    estado = models.CharField(max_length=50, default=ACTIVA)
 
     class Meta:
         managed = False

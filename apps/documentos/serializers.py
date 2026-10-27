@@ -7,14 +7,29 @@ from .models import Category, Etiqueta, Upload
 
 
 class CategorySerializer(serializers.ModelSerializer):
+    """`documentos` y `puede_eliminar` salen de las anotaciones de `selectors.listar_categorias`."""
+
+    documentos = serializers.SerializerMethodField()
+    puede_eliminar = serializers.SerializerMethodField()
+
     class Meta:
         model = Category
-        fields = ('id', 'name', 'description', 'created_at', 'modified_at', 'estado')
+        fields = ('id', 'name', 'description', 'created_at', 'modified_at', 'estado', 'documentos', 'puede_eliminar')
+
+    def get_documentos(self, obj: Category) -> int:
+        return getattr(obj, 'documentos', 0)
+
+    def get_puede_eliminar(self, obj: Category) -> bool:
+        return getattr(obj, 'documentos_totales', 0) == 0
 
 
 class CategoryWriteSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=35)
     description = serializers.CharField(max_length=80)
+
+
+class CategoryEstadoSerializer(serializers.Serializer):
+    estado = serializers.ChoiceField(choices=[Category.ACTIVA, Category.INACTIVA])
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -84,6 +99,7 @@ class DocumentosConsultaSerializer(serializers.Serializer):
     q = serializers.CharField(required=False, allow_blank=True, max_length=100, default='')
     categoria = serializers.IntegerField(required=False, min_value=1, default=None)
     etiquetas = serializers.CharField(required=False, allow_blank=True, default='')
+    orden = serializers.ChoiceField(choices=['recientes', 'antiguos'], required=False, default='recientes')
     page = serializers.IntegerField(required=False, min_value=1, default=1)
     page_size = serializers.IntegerField(required=False, min_value=1, max_value=100, default=20)
 
@@ -114,8 +130,11 @@ class DocumentoSubidaSerializer(serializers.Serializer):
     tagIds = _IdsField(required=False, default=list)
 
     def validate_area(self, valor: int) -> int:
-        if not Category.objects.filter(pk=valor).exists():
+        categoria = Category.objects.filter(pk=valor).first()
+        if categoria is None:
             raise serializers.ValidationError('La categoría no existe.')
+        if categoria.estado == Category.INACTIVA:
+            raise serializers.ValidationError('La categoría está inactiva: actívala para subir documentos en ella.')
         return valor
 
     def validate_tagIds(self, valor: list[int]) -> list[int]:

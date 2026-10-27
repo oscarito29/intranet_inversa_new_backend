@@ -10,6 +10,7 @@ from apps.core.permissions import AdminParaEscritura, EsAdministrador
 
 from . import selectors, services
 from .serializers import (
+    CategoryEstadoSerializer,
     CategorySerializer,
     CategoryWriteSerializer,
     DocumentoListaSerializer,
@@ -40,7 +41,7 @@ class CategoriasView(APIView):
         serializer = CategoryWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         categoria = services.crear_categoria(request.user, **serializer.validated_data)
-        return Response(CategorySerializer(categoria).data, status=status.HTTP_201_CREATED)
+        return Response(CategorySerializer(selectors.obtener_categoria(categoria.id)).data, status=status.HTTP_201_CREATED)
 
 
 class CategoriaDetailView(APIView):
@@ -51,7 +52,20 @@ class CategoriaDetailView(APIView):
         serializer = CategoryWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         categoria = services.actualizar_categoria(request.user, category_id, **serializer.validated_data)
-        return Response(CategorySerializer(categoria).data)
+        return Response(CategorySerializer(selectors.obtener_categoria(categoria.id)).data)
+
+    @extend_schema(
+        summary='Activar o desactivar una categoría',
+        description='Una categoría inactiva conserva sus documentos pero no admite subir otros nuevos.',
+        tags=[TAG],
+        request=CategoryEstadoSerializer,
+        responses=CategorySerializer,
+    )
+    def patch(self, request: Request, category_id: int) -> Response:
+        serializer = CategoryEstadoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        categoria = services.cambiar_estado_categoria(request.user, category_id, serializer.validated_data['estado'])
+        return Response(CategorySerializer(selectors.obtener_categoria(categoria.id)).data)
 
     @extend_schema(summary='Eliminar categoría', tags=[TAG], responses={204: None})
     def delete(self, request: Request, category_id: int) -> Response:
@@ -99,6 +113,7 @@ class DocumentosView(APIView):
             etiqueta_ids=filtros['etiquetas'],
             pagina=filtros['page'],
             tamanio=filtros['page_size'],
+            orden=filtros['orden'],
         )
         contexto = {'etiquetas': pagina['etiquetas'], 'versiones': pagina['versiones']}
         return Response(

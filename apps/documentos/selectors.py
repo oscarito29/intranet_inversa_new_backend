@@ -7,8 +7,20 @@ from apps.usuarios.models import Usuario
 from .models import Category, DocsEtiqueta, Etiqueta, EtiquetaRol, Upload
 
 
-def listar_categorias():
-    return Category.objects.order_by('name')
+def _categorias_con_conteo() -> QuerySet[Category]:
+    """`documentos`: vigentes (lo que se muestra). `documentos_totales`: incluye los reemplazados, que también impiden borrar."""
+    return Category.objects.annotate(
+        documentos=Count('upload', filter=~Q(upload__estado=Upload.REEMPLAZADO)),
+        documentos_totales=Count('upload'),
+    )
+
+
+def listar_categorias() -> QuerySet[Category]:
+    return _categorias_con_conteo().order_by('name')
+
+
+def obtener_categoria(category_id: int) -> Category:
+    return _categorias_con_conteo().get(pk=category_id)
 
 
 def listar_etiquetas():
@@ -103,10 +115,15 @@ def obtener_pagina_de_documentos(
     etiqueta_ids: tuple[int, ...] = (),
     pagina: int = 1,
     tamanio: int = 20,
+    orden: str = 'recientes',
 ) -> dict:
-    """Una página de documentos vigentes con lo que la lista necesita: etiquetas, versiones anteriores y conteo por categoría."""
+    """
+    Una página de documentos vigentes con lo que la lista necesita: etiquetas, versiones anteriores y conteo por categoría.
+    `orden` es por fecha de subida: `recientes` (por defecto) o `antiguos`; el id desempata para que las páginas no se mezclen.
+    """
     sin_categoria = listar_documentos_vigentes(usuario, texto, etiqueta_ids)
     consulta = sin_categoria.filter(area_id=categoria_id) if categoria_id else sin_categoria
+    consulta = consulta.order_by('fecha', 'id') if orden == 'antiguos' else consulta.order_by('-fecha', '-id')
 
     paginador = Paginator(consulta, min(max(tamanio, 1), TAMANIO_PAGINA_MAXIMO))
     pagina_actual = paginador.get_page(pagina)
