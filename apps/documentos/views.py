@@ -1,3 +1,5 @@
+from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -6,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.cache import cached
+from apps.core.exportacion import TIPO_XLSX, generar_xlsx, respuesta_xlsx
 from apps.core.permissions import AdminParaEscritura, EsAdministrador
 
 from . import selectors, services
@@ -88,6 +91,29 @@ class DocsEtiquetasView(APIView):
     @extend_schema(summary='Mapa documento_id -> [etiqueta_id, ...] de los documentos visibles para el rol', tags=[TAG])
     def get(self, request: Request) -> Response:
         return Response(selectors.listar_docs_etiquetas(request.user))
+
+
+class DocumentosExportarView(APIView):
+    @extend_schema(
+        summary='Exportar a Excel los documentos vigentes visibles para el rol',
+        description='Acepta los filtros de la lista (`q`, `categoria`, `etiquetas`, `orden`) e ignora la paginación: salen todos los '
+        'que coinciden, hasta 5000.',
+        tags=[TAG],
+        parameters=[DocumentosConsultaSerializer],
+        responses={(200, TIPO_XLSX): OpenApiTypes.BINARY},
+    )
+    def get(self, request: Request) -> HttpResponse:
+        consulta = DocumentosConsultaSerializer(data=request.query_params)
+        consulta.is_valid(raise_exception=True)
+        filtros = consulta.validated_data
+        filas = selectors.filas_de_exportacion_de_documentos(
+            request.user,
+            texto=filtros['q'].strip(),
+            categoria_id=filtros['categoria'],
+            etiqueta_ids=filtros['etiquetas'],
+            orden=filtros['orden'],
+        )
+        return respuesta_xlsx('documentos.xlsx', generar_xlsx('Documentos', selectors.ENCABEZADOS_DE_EXPORTACION, filas))
 
 
 class DocumentosView(APIView):

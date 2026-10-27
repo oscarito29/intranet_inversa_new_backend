@@ -18,6 +18,7 @@ DATABASES = {
 
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])  # noqa: F405
 CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ['Content-Disposition']  # nombre del archivo en las exportaciones
 
 SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True

@@ -5,6 +5,7 @@ from .views import (
     CategoriasView,
     DocsEtiquetasView,
     DocumentoReemplazarView,
+    DocumentosExportarView,
     DocumentosView,
     EtiquetasListView,
 )
@@ -15,5 +16,6 @@ urlpatterns = [
     path('etiquetas/', EtiquetasListView.as_view(), name='documentos-etiquetas'),
     path('docs-etiquetas/', DocsEtiquetasView.as_view(), name='documentos-docs-etiquetas'),
     path('documentos/', DocumentosView.as_view(), name='documentos-documentos'),
+    path('documentos/exportar/', DocumentosExportarView.as_view(), name='documentos-exportar'),
     path('documentos/<int:documento_id>/reemplazar/', DocumentoReemplazarView.as_view(), name='documentos-reemplazar'),
 ]

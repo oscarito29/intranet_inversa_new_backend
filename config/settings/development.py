@@ -24,6 +24,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:5174',
 ]
 CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ['Content-Disposition']  # nombre del archivo en las exportaciones
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 

@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.usuarios.models import Corporacion, Financiera
 
 from .models import Anio, Documento, Mes, RangoFecha
+from .selectors import motivo_de_fila
 
 
 class AnioSerializer(serializers.Serializer):
@@ -149,14 +150,7 @@ class PeriodoFilaSerializer(serializers.Serializer):
 
     def get_motivo(self, fila: dict) -> str | None:
         """Motivo visible en la fila: el del rechazo o el de la revocación, según el estado."""
-        documento = fila['documento']
-        if documento is None:
-            return None
-        if fila['estado'] == 'rechazado':
-            return documento.motivo_rechazo
-        if fila['estado'] == 'revocado':
-            return documento.motivo_desaprueba
-        return None
+        return motivo_de_fila(fila)
 
 
 class HistorialEventoSerializer(serializers.Serializer):

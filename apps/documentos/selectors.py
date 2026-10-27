@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, QuerySet
 
@@ -106,6 +107,45 @@ def versiones_anteriores(documentos: list[Upload]) -> dict[int, list[Upload]]:
                 proximo[documento_id] = previa.reemplaza_a_id
         siguiente = proximo
     return resultado
+
+
+EXPORTACION_MAXIMA = 5000
+ENCABEZADOS_DE_EXPORTACION = ['Documento', 'Categoría', 'Etiquetas', 'Fecha de subida', 'Tipo', 'Tamaño']
+
+
+def filas_de_exportacion_de_documentos(
+    usuario: Usuario,
+    texto: str = '',
+    categoria_id: int | None = None,
+    etiqueta_ids: tuple[int, ...] = (),
+    orden: str = 'recientes',
+) -> list[list]:
+    """
+    Los documentos que la lista mostraría con esos mismos filtros, todos y no una página, con la categoría y las
+    etiquetas por nombre. Respeta la visibilidad por rol. Con más de `EXPORTACION_MAXIMA` pide acotar el filtro.
+    """
+    consulta = listar_documentos_vigentes(usuario, texto, etiqueta_ids)
+    if categoria_id:
+        consulta = consulta.filter(area_id=categoria_id)
+    consulta = consulta.order_by('fecha', 'id') if orden == 'antiguos' else consulta.order_by('-fecha', '-id')
+
+    documentos = list(consulta[: EXPORTACION_MAXIMA + 1])
+    if len(documentos) > EXPORTACION_MAXIMA:
+        raise ValidationError(f'Hay más de {EXPORTACION_MAXIMA} documentos con estos filtros. Acótalos para exportar.')
+
+    nombres = dict(Etiqueta.objects.values_list('id', 'etiqueta_nombre'))
+    etiquetas = etiquetas_por_documento([documento.id for documento in documentos])
+    return [
+        [
+            documento.name,
+            documento.area.name,
+            ', '.join(sorted(nombres.get(etiqueta_id) or '' for etiqueta_id in etiquetas.get(documento.id, []))),
+            documento.fecha,
+            documento.tipo,
+            documento.tamanio,
+        ]
+        for documento in documentos
+    ]
 
 
 def obtener_pagina_de_documentos(

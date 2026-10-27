@@ -149,6 +149,49 @@ def obtener_periodo(usuario: Usuario, anio: int, mes_id: int, corporacion_id: st
     }
 
 
+def motivo_de_fila(fila: dict) -> str | None:
+    """Motivo visible en la fila de un periodo: el del rechazo o el de la revocación, según el estado."""
+    documento = fila['documento']
+    if documento is None:
+        return None
+    if fila['estado'] == 'rechazado':
+        return documento.motivo_rechazo
+    if fila['estado'] == 'revocado':
+        return documento.motivo_desaprueba
+    return None
+
+
+ENCABEZADOS_DE_EXPORTACION = ['Financiera', 'Estado', 'Archivo', 'Fecha de subida', 'Motivo']
+_ETIQUETA_DE_ESTADO = {
+    SIN_CARGAR: 'Sin cargar',
+    'pendiente': 'Pendiente',
+    'aprobado': 'Aprobado',
+    'rechazado': 'Rechazado',
+    'revocado': 'Revocado',
+}
+
+
+def filas_de_exportacion_del_periodo(usuario: Usuario, anio: int, mes_id: int, corporacion_id: str) -> list[list]:
+    """Una fila por financiera con lo mismo que muestra la pantalla; el alcance (todas o solo la suya) lo da `obtener_periodo`."""
+    filas = []
+    for fila in obtener_periodo(usuario, anio, mes_id, corporacion_id)['filas']:
+        documento = fila['documento']
+        filas.append(
+            [
+                fila['financiera'].nombre,
+                _ETIQUETA_DE_ESTADO[fila['estado']],
+                documento.nombre_archivo if documento else None,
+                documento.fecha if documento else None,
+                motivo_de_fila(fila),
+            ]
+        )
+    return filas
+
+
+def obtener_numero_de_anio(anio_id: int) -> int:
+    return Anio.objects.values_list('anio', flat=True).get(pk=anio_id)
+
+
 def obtener_historial(usuario: Usuario, documento_id: int) -> list[dict]:
     """
     Línea de tiempo de un documento a partir de sus columnas de evento. La revocación no guarda

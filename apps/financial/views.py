@@ -1,3 +1,5 @@
+from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -6,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.cache import cached
+from apps.core.exportacion import TIPO_XLSX, generar_xlsx, respuesta_xlsx
 from apps.core.permissions import EsAdministrador
 
 from . import selectors, services
@@ -100,6 +103,27 @@ class PeriodoView(APIView):
         datos = parametros.validated_data
         periodo = selectors.obtener_periodo(request.user, datos['anio'], datos['mes'], datos['corporacion'])
         return Response({'resumen': periodo['resumen'], 'financieras': PeriodoFilaSerializer(periodo['filas'], many=True).data})
+
+
+class ExportarPeriodoView(APIView):
+    @extend_schema(
+        summary='Exportar a Excel el estado de cada financiera en un periodo',
+        description='Mismas filas que `GET /financiero/periodo/` (el administrador, todas las financieras; el resto, solo la suya).',
+        tags=[TAG],
+        parameters=[
+            OpenApiParameter('anio', int, required=True),
+            OpenApiParameter('mes', int, required=True),
+            OpenApiParameter('corporacion', str, required=True),
+        ],
+        responses={(200, TIPO_XLSX): OpenApiTypes.BINARY},
+    )
+    def get(self, request: Request) -> HttpResponse:
+        parametros = PeriodoQuerySerializer(data=request.query_params)
+        parametros.is_valid(raise_exception=True)
+        datos = parametros.validated_data
+        filas = selectors.filas_de_exportacion_del_periodo(request.user, datos['anio'], datos['mes'], datos['corporacion'])
+        nombre = f"estados-financieros-{selectors.obtener_numero_de_anio(datos['anio'])}-{datos['mes']:02d}-corporacion-{datos['corporacion']}.xlsx"
+        return respuesta_xlsx(nombre, generar_xlsx('Periodo', selectors.ENCABEZADOS_DE_EXPORTACION, filas))
 
 
 class DocumentosView(APIView):
