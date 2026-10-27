@@ -1,4 +1,5 @@
-from django.db.models import Q, QuerySet
+from django.core.paginator import Paginator
+from django.db.models import Count, Q, QuerySet
 
 from apps.core.permissions import ROL_ADMIN
 from apps.usuarios.models import Usuario
@@ -41,3 +42,83 @@ def listar_docs_etiquetas(usuario: Usuario) -> dict[int, list[int]]:
 def categoria_tiene_documentos(category_id: int) -> bool:
     """`upload.area` tiene clave foránea real: con cualquier documento, vigente o reemplazado, no se puede borrar."""
     return Upload.objects.filter(area_id=category_id).exists()
+
+
+TAMANIO_PAGINA_MAXIMO = 100
+PROFUNDIDAD_MAXIMA_DE_VERSIONES = 50
+
+
+def listar_documentos_vigentes(usuario: Usuario, texto: str = '', etiqueta_ids: tuple[int, ...] = ()) -> QuerySet[Upload]:
+    """
+    Documentos visibles para el rol que no han sido reemplazados, filtrados por texto y por etiquetas
+    (el documento debe tenerlas todas). No filtra por categoría: así se pueden contar por categoría.
+    """
+    consulta = listar_documentos(usuario).exclude(estado=Upload.REEMPLAZADO)
+    if texto:
+        consulta = consulta.filter(name__icontains=texto)
+    for etiqueta_id in etiqueta_ids:
+        consulta = consulta.filter(etiquetas__etiqueta_id=etiqueta_id)
+    return consulta
+
+
+def contar_por_categoria(consulta: QuerySet[Upload]) -> dict[int, int]:
+    filas = consulta.order_by().values('area_id').annotate(total=Count('id'))
+    return {fila['area_id']: fila['total'] for fila in filas}
+
+
+def etiquetas_por_documento(documento_ids: list[int]) -> dict[int, list[int]]:
+    resultado: dict[int, list[int]] = {}
+    for documento_id, etiqueta_id in DocsEtiqueta.objects.filter(documento_id__in=documento_ids).values_list('documento_id', 'etiqueta_id'):
+        resultado.setdefault(documento_id, []).append(etiqueta_id)
+    return resultado
+
+
+def versiones_anteriores(documentos: list[Upload]) -> dict[int, list[Upload]]:
+    """Versiones que reemplazó cada documento, de la más reciente a la más antigua (una consulta por nivel de la cadena)."""
+    resultado: dict[int, list[Upload]] = {documento.id: [] for documento in documentos}
+    siguiente = {documento.id: documento.reemplaza_a_id for documento in documentos if documento.reemplaza_a_id}
+    vistos: dict[int, set[int]] = {documento.id: {documento.id} for documento in documentos}
+
+    for _ in range(PROFUNDIDAD_MAXIMA_DE_VERSIONES):
+        if not siguiente:
+            break
+        previas = {previa.id: previa for previa in Upload.objects.filter(pk__in=set(siguiente.values()))}
+        proximo: dict[int, int] = {}
+        for documento_id, previa_id in siguiente.items():
+            previa = previas.get(previa_id)
+            if previa is None or previa.id in vistos[documento_id]:
+                continue
+            vistos[documento_id].add(previa.id)
+            resultado[documento_id].append(previa)
+            if previa.reemplaza_a_id:
+                proximo[documento_id] = previa.reemplaza_a_id
+        siguiente = proximo
+    return resultado
+
+
+def obtener_pagina_de_documentos(
+    usuario: Usuario,
+    texto: str = '',
+    categoria_id: int | None = None,
+    etiqueta_ids: tuple[int, ...] = (),
+    pagina: int = 1,
+    tamanio: int = 20,
+) -> dict:
+    """Una página de documentos vigentes con lo que la lista necesita: etiquetas, versiones anteriores y conteo por categoría."""
+    sin_categoria = listar_documentos_vigentes(usuario, texto, etiqueta_ids)
+    consulta = sin_categoria.filter(area_id=categoria_id) if categoria_id else sin_categoria
+
+    paginador = Paginator(consulta, min(max(tamanio, 1), TAMANIO_PAGINA_MAXIMO))
+    pagina_actual = paginador.get_page(pagina)
+    documentos = list(pagina_actual.object_list)
+
+    return {
+        'documentos': documentos,
+        'total': paginador.count,
+        'pagina': pagina_actual.number,
+        'tamanio': paginador.per_page,
+        'paginas': paginador.num_pages,
+        'categorias': contar_por_categoria(sin_categoria),
+        'etiquetas': etiquetas_por_documento([documento.id for documento in documentos]),
+        'versiones': versiones_anteriores(documentos),
+    }

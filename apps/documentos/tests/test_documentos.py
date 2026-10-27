@@ -192,7 +192,7 @@ class DocumentosTests(ApiTestCase):
             fname='https://bucket.s3.amazonaws.com/a.pdf', name='A', area=categoria, estado='Activo', fecha=timezone.now(), tipo='x', tamanio='1'
         )
 
-        urls = {d['name']: d['fname'] for d in self.cliente_usuario.get(reverse('documentos-documentos')).data}
+        urls = {d['name']: d['fname'] for d in self.cliente_usuario.get(reverse('documentos-documentos')).data['results']}
 
         self.assertEqual(urls['Reglamento'], '/media/legacy-documentos/20220901_Reglamento.pdf')
         self.assertEqual(urls['A'], 'https://bucket.s3.amazonaws.com/a.pdf')
@@ -227,7 +227,7 @@ class VisibilidadPorEtiquetaTests(ApiTestCase):
         DocsEtiqueta.objects.create(documento=self.mixto, etiqueta=self.etiqueta_publica)
 
     def _nombres(self, cliente) -> set[str]:
-        return {d['name'] for d in cliente.get(reverse('documentos-documentos')).data}
+        return {d['name'] for d in cliente.get(reverse('documentos-documentos')).data['results']}
 
     def test_el_admin_ve_todos(self):
         self.assertEqual(self._nombres(self.cliente_admin), {'sin-etiquetas.pdf', 'publico.pdf', 'restringido.pdf', 'mixto.pdf'})

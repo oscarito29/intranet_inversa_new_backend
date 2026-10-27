@@ -12,7 +12,9 @@ from . import selectors, services
 from .serializers import (
     CategorySerializer,
     CategoryWriteSerializer,
+    DocumentoListaSerializer,
     DocumentoSubidaSerializer,
+    DocumentosConsultaSerializer,
     DocumentSerializer,
     TagSerializer,
 )
@@ -79,12 +81,36 @@ class DocumentosView(APIView):
     permission_classes = [AdminParaEscritura]
 
     @extend_schema(
-        summary='Listar documentos institucionales visibles para el rol del usuario',
+        summary='Listar, paginados, los documentos vigentes visibles para el rol del usuario',
+        description='Filtra por texto (`q`), categoría (`categoria`) y etiquetas (`etiquetas=1,2`, el documento debe tenerlas todas). '
+        'Cada fila trae sus etiquetas, si su archivo está disponible y las versiones que reemplazó; `categorias` cuenta '
+        'los vigentes por categoría sin aplicar el filtro de categoría.',
         tags=[TAG],
-        responses=DocumentSerializer(many=True),
+        parameters=[DocumentosConsultaSerializer],
     )
     def get(self, request: Request) -> Response:
-        return Response(DocumentSerializer(selectors.listar_documentos(request.user), many=True).data)
+        consulta = DocumentosConsultaSerializer(data=request.query_params)
+        consulta.is_valid(raise_exception=True)
+        filtros = consulta.validated_data
+        pagina = selectors.obtener_pagina_de_documentos(
+            request.user,
+            texto=filtros['q'].strip(),
+            categoria_id=filtros['categoria'],
+            etiqueta_ids=filtros['etiquetas'],
+            pagina=filtros['page'],
+            tamanio=filtros['page_size'],
+        )
+        contexto = {'etiquetas': pagina['etiquetas'], 'versiones': pagina['versiones']}
+        return Response(
+            {
+                'count': pagina['total'],
+                'page': pagina['pagina'],
+                'page_size': pagina['tamanio'],
+                'total_pages': pagina['paginas'],
+                'categorias': pagina['categorias'],
+                'results': DocumentoListaSerializer(pagina['documentos'], many=True, context=contexto).data,
+            }
+        )
 
     @extend_schema(
         summary='Subir un documento institucional nuevo (solo Admin)',

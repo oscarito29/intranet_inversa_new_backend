@@ -1,6 +1,8 @@
 from django.utils.encoding import filepath_to_uri
 from rest_framework import serializers
 
+from apps.core.archivos import archivo_local_disponible
+
 from .models import Category, Etiqueta, Upload
 
 
@@ -24,6 +26,16 @@ class TagSerializer(serializers.ModelSerializer):
         fields = ('id', 'etiquetaNombre', 'parent_id')
 
 
+def url_de_archivo(fname: str) -> str:
+    """
+    `upload.fname` mezcla tres formatos: URLs de S3 y rutas `/media/...` (subidas nuevas) ya sirven tal cual;
+    el resto son nombres sueltos de antes de la migración, servidos desde `media/legacy-documentos/`.
+    """
+    if fname.startswith(('http://', 'https://', '/')):
+        return fname
+    return f'/media/legacy-documentos/{filepath_to_uri(fname)}'
+
+
 class DocumentSerializer(serializers.ModelSerializer):
     reemplaza_a = serializers.IntegerField(source='reemplaza_a_id', allow_null=True)
     area = serializers.IntegerField(source='area_id')
@@ -34,12 +46,52 @@ class DocumentSerializer(serializers.ModelSerializer):
         fields = ('id', 'reemplaza_a', 'fname', 'name', 'area', 'estado', 'fecha', 'tipo', 'tamanio')
 
     def get_fname(self, obj: Upload) -> str:
-        """`upload.fname` legado: URLs de S3 ya son absolutas; el resto son nombres de
-        archivo sueltos de antes de la migración, servidos ahora desde
-        `media/legacy-documentos/` (ver copia hecha en la migración)."""
-        if obj.fname.startswith('http://') or obj.fname.startswith('https://'):
-            return obj.fname
-        return f'/media/legacy-documentos/{filepath_to_uri(obj.fname)}'
+        return url_de_archivo(obj.fname)
+
+
+class DocumentoListaSerializer(DocumentSerializer):
+    """Fila de la lista: el documento vigente con su archivo comprobado, sus etiquetas y las versiones que reemplazó."""
+
+    disponible = serializers.SerializerMethodField()
+    etiquetas = serializers.SerializerMethodField()
+    versiones = serializers.SerializerMethodField()
+
+    class Meta(DocumentSerializer.Meta):
+        fields = (*DocumentSerializer.Meta.fields, 'disponible', 'etiquetas', 'versiones')
+
+    def get_disponible(self, obj: Upload) -> bool:
+        return archivo_local_disponible(url_de_archivo(obj.fname))
+
+    def get_etiquetas(self, obj: Upload) -> list[int]:
+        return self.context['etiquetas'].get(obj.id, [])
+
+    def get_versiones(self, obj: Upload) -> list[dict]:
+        return [
+            {
+                'id': version.id,
+                'name': version.name,
+                'fname': url_de_archivo(version.fname),
+                'fecha': version.fecha,
+                'disponible': archivo_local_disponible(url_de_archivo(version.fname)),
+            }
+            for version in self.context['versiones'].get(obj.id, [])
+        ]
+
+
+class DocumentosConsultaSerializer(serializers.Serializer):
+    """Parámetros de `GET /documentos/documentos/`."""
+
+    q = serializers.CharField(required=False, allow_blank=True, max_length=100, default='')
+    categoria = serializers.IntegerField(required=False, min_value=1, default=None)
+    etiquetas = serializers.CharField(required=False, allow_blank=True, default='')
+    page = serializers.IntegerField(required=False, min_value=1, default=1)
+    page_size = serializers.IntegerField(required=False, min_value=1, max_value=100, default=20)
+
+    def validate_etiquetas(self, valor: str) -> tuple[int, ...]:
+        try:
+            return tuple(int(parte) for parte in valor.split(',') if parte.strip())
+        except ValueError:
+            raise serializers.ValidationError('Las etiquetas deben ser ids separados por comas.')
 
 
 class _IdsField(serializers.ListField):
