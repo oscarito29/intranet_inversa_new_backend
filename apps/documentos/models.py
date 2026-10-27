@@ -60,6 +60,11 @@ class Category(models.Model):
 class Upload(models.Model):
     """Tabla `upload`: documentos institucionales (no confundir con `product`, remanente roto del legacy)."""
 
+    # Un documento está vigente mientras no haya sido reemplazado. Los datos legados traen
+    # además estados sueltos (p. ej. 'E') que también cuentan como vigentes.
+    ACTIVO = 'Activo'
+    REEMPLAZADO = 'Reemplazado'
+
     id = models.AutoField(primary_key=True)
     reemplaza_a = models.ForeignKey('self', db_column='reemplaza_a', null=True, blank=True, on_delete=models.DO_NOTHING)
     fname = models.TextField()

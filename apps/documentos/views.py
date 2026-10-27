@@ -1,127 +1,131 @@
-from django.core.exceptions import PermissionDenied, ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied as DrfPermissionDenied
-from rest_framework.exceptions import ValidationError as DrfValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.cache import cached
+from apps.core.permissions import AdminParaEscritura, EsAdministrador
+
 from . import selectors, services
-from .models import Category, Upload
-from .serializers import CategorySerializer, CategoryWriteSerializer, DocumentSerializer, TagSerializer
+from .serializers import (
+    CategorySerializer,
+    CategoryWriteSerializer,
+    DocumentoSubidaSerializer,
+    DocumentSerializer,
+    TagSerializer,
+)
 
-
-def _reraise_como_drf(exc: Exception):
-    if isinstance(exc, PermissionDenied):
-        raise DrfPermissionDenied(str(exc)) from exc
-    if isinstance(exc, DjangoValidationError):
-        raise DrfValidationError(str(exc)) from exc
-    raise exc
+TAG = 'Documentos'
+TTL_CATALOGOS = 60 * 5
 
 
 class CategoriasView(APIView):
-    @extend_schema(summary='Listar categorías')
-    def get(self, request: Request) -> Response:
-        return Response(CategorySerializer(selectors.listar_categorias(), many=True).data)
+    permission_classes = [AdminParaEscritura]
 
-    @extend_schema(summary='Crear categoría', request=CategoryWriteSerializer)
+    @extend_schema(summary='Listar categorías', tags=[TAG], responses=CategorySerializer(many=True))
+    def get(self, request: Request) -> Response:
+        datos = cached(
+            'documentos:categorias',
+            TTL_CATALOGOS,
+            lambda: list(CategorySerializer(selectors.listar_categorias(), many=True).data),
+        )
+        return Response(datos)
+
+    @extend_schema(summary='Crear categoría', tags=[TAG], request=CategoryWriteSerializer, responses={201: CategorySerializer})
     def post(self, request: Request) -> Response:
         serializer = CategoryWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        try:
-            categoria = services.crear_categoria(request.user, **serializer.validated_data)
-        except (PermissionDenied, DjangoValidationError) as exc:
-            _reraise_como_drf(exc)
+        categoria = services.crear_categoria(request.user, **serializer.validated_data)
         return Response(CategorySerializer(categoria).data, status=status.HTTP_201_CREATED)
 
 
 class CategoriaDetailView(APIView):
-    @extend_schema(summary='Actualizar categoría', request=CategoryWriteSerializer)
+    permission_classes = [EsAdministrador]
+
+    @extend_schema(summary='Actualizar categoría', tags=[TAG], request=CategoryWriteSerializer, responses=CategorySerializer)
     def put(self, request: Request, category_id: int) -> Response:
         serializer = CategoryWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        try:
-            categoria = services.actualizar_categoria(request.user, category_id, **serializer.validated_data)
-        except (PermissionDenied, DjangoValidationError) as exc:
-            _reraise_como_drf(exc)
-        except Category.DoesNotExist:
-            raise DrfValidationError({'detail': 'La categoría no existe.'})
+        categoria = services.actualizar_categoria(request.user, category_id, **serializer.validated_data)
         return Response(CategorySerializer(categoria).data)
 
-    @extend_schema(summary='Eliminar categoría')
+    @extend_schema(summary='Eliminar categoría', tags=[TAG], responses={204: None})
     def delete(self, request: Request, category_id: int) -> Response:
-        try:
-            services.eliminar_categoria(request.user, category_id)
-        except (PermissionDenied, DjangoValidationError) as exc:
-            _reraise_como_drf(exc)
-        except Category.DoesNotExist:
-            raise DrfValidationError({'detail': 'La categoría no existe.'})
+        services.eliminar_categoria(request.user, category_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class EtiquetasListView(APIView):
-    @extend_schema(summary='Listar etiquetas (solo lectura, para filtros de documentos)')
+    @extend_schema(summary='Listar etiquetas (solo lectura, para filtros de documentos)', tags=[TAG], responses=TagSerializer(many=True))
     def get(self, request: Request) -> Response:
-        return Response(TagSerializer(selectors.listar_etiquetas(), many=True).data)
+        datos = cached(
+            'etiquetas:por-nombre',
+            TTL_CATALOGOS,
+            lambda: list(TagSerializer(selectors.listar_etiquetas(), many=True).data),
+        )
+        return Response(datos)
 
 
 class DocsEtiquetasView(APIView):
-    @extend_schema(summary='Mapa documento_id -> [etiqueta_id, ...]')
+    @extend_schema(summary='Mapa documento_id -> [etiqueta_id, ...] de los documentos visibles para el rol', tags=[TAG])
     def get(self, request: Request) -> Response:
-        return Response(selectors.listar_docs_etiquetas())
-
-
-def _parse_tag_ids(request: Request) -> list[int]:
-    valores = request.data.getlist('tagIds') if hasattr(request.data, 'getlist') else request.data.get('tagIds', [])
-    return [int(v) for v in valores if str(v).strip()]
+        return Response(selectors.listar_docs_etiquetas(request.user))
 
 
 class DocumentosView(APIView):
     parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [AdminParaEscritura]
 
-    @extend_schema(summary='Listar documentos institucionales')
+    @extend_schema(
+        summary='Listar documentos institucionales visibles para el rol del usuario',
+        tags=[TAG],
+        responses=DocumentSerializer(many=True),
+    )
     def get(self, request: Request) -> Response:
-        return Response(DocumentSerializer(selectors.listar_documentos(), many=True).data)
+        return Response(DocumentSerializer(selectors.listar_documentos(request.user), many=True).data)
 
-    @extend_schema(summary='Subir un documento institucional nuevo')
+    @extend_schema(
+        summary='Subir un documento institucional nuevo (solo Admin)',
+        tags=[TAG],
+        request=DocumentoSubidaSerializer,
+        responses={201: DocumentSerializer},
+    )
     def post(self, request: Request) -> Response:
-        archivo = request.FILES.get('file')
-        if archivo is None:
-            raise DrfValidationError({'file': 'Este campo es requerido.'})
-        try:
-            documento = services.subir_documento(
-                usuario=request.user,
-                archivo=archivo,
-                name=request.data.get('name'),
-                area_id=request.data.get('area'),
-                tag_ids=_parse_tag_ids(request),
-            )
-        except DjangoValidationError as exc:
-            _reraise_como_drf(exc)
+        entrada = DocumentoSubidaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        datos = entrada.validated_data
+        documento = services.subir_documento(
+            usuario=request.user,
+            archivo=datos['file'],
+            name=datos['name'],
+            area_id=datos['area'],
+            tag_ids=datos['tagIds'],
+        )
         return Response(DocumentSerializer(documento).data, status=status.HTTP_201_CREATED)
 
 
 class DocumentoReemplazarView(APIView):
     parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [EsAdministrador]
 
-    @extend_schema(summary='Reemplazar (versionar) un documento institucional — solo Admin')
+    @extend_schema(
+        summary='Reemplazar (versionar) un documento institucional — solo Admin',
+        tags=[TAG],
+        request=DocumentoSubidaSerializer,
+        responses={201: DocumentSerializer},
+    )
     def post(self, request: Request, documento_id: int) -> Response:
-        archivo = request.FILES.get('file')
-        if archivo is None:
-            raise DrfValidationError({'file': 'Este campo es requerido.'})
-        try:
-            documento = services.reemplazar_documento(
-                usuario=request.user,
-                replaces_id=documento_id,
-                archivo=archivo,
-                name=request.data.get('name'),
-                area_id=request.data.get('area'),
-                tag_ids=_parse_tag_ids(request),
-            )
-        except (PermissionDenied, DjangoValidationError) as exc:
-            _reraise_como_drf(exc)
-        except Upload.DoesNotExist:
-            raise DrfValidationError({'detail': 'El documento original no existe.'})
+        entrada = DocumentoSubidaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        datos = entrada.validated_data
+        documento = services.reemplazar_documento(
+            usuario=request.user,
+            replaces_id=documento_id,
+            archivo=datos['file'],
+            name=datos['name'],
+            area_id=datos['area'],
+            tag_ids=datos['tagIds'],
+        )
         return Response(DocumentSerializer(documento).data, status=status.HTTP_201_CREATED)
