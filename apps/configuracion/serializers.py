@@ -88,3 +88,27 @@ class CumpleañoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Usuario
         fields = ('id', 'name', 'fecha_nacimiento')
+
+
+class BitacoraSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    usuario = serializers.CharField()
+    accion = serializers.CharField()
+    descripcion = serializers.CharField()
+    fecha = serializers.DateTimeField()
+
+
+class BitacoraConsultaSerializer(serializers.Serializer):
+    """Parámetros de `GET /configuracion/bitacora/`."""
+
+    q = serializers.CharField(required=False, allow_blank=True, max_length=100, default='')
+    accion = serializers.CharField(required=False, allow_blank=True, max_length=100, default='')
+    desde = serializers.DateField(required=False, default=None)
+    hasta = serializers.DateField(required=False, default=None)
+    page = serializers.IntegerField(required=False, min_value=1, default=1)
+    page_size = serializers.IntegerField(required=False, min_value=1, max_value=100, default=25)
+
+    def validate(self, atributos):
+        if atributos['desde'] and atributos['hasta'] and atributos['hasta'] < atributos['desde']:
+            raise serializers.ValidationError({'hasta': 'La fecha final no puede ser anterior a la inicial.'})
+        return atributos

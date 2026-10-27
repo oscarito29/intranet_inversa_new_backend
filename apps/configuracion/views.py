@@ -13,6 +13,8 @@ from . import selectors, services
 from .serializers import (
     ActividadSerializer,
     ActividadWriteSerializer,
+    BitacoraConsultaSerializer,
+    BitacoraSerializer,
     ComunicadoSerializer,
     CumpleañoSerializer,
     EtiquetaRolSerializer,
@@ -195,4 +197,38 @@ class CumpleañosView(APIView):
         mes = selectors.mes_actual()
         return Response(
             cached(f'cumpleanos:{mes}', TTL_CATALOGOS, lambda: _datos(CumpleañoSerializer, selectors.listar_cumpleanos_del_mes()))
+        )
+
+
+class BitacoraView(APIView):
+    permission_classes = [EsAdministrador]
+
+    @extend_schema(
+        summary='Consultar la bitácora, paginada',
+        description='Quién hizo qué y cuándo, de lo más reciente a lo más antiguo. Filtra por texto (`q`, en la persona o en la '
+        'descripción), acción (`accion`) y días completos (`desde`, `hasta`). `acciones` lista las que existen para el filtro.',
+        tags=[TAG],
+        parameters=[BitacoraConsultaSerializer],
+    )
+    def get(self, request: Request) -> Response:
+        consulta = BitacoraConsultaSerializer(data=request.query_params)
+        consulta.is_valid(raise_exception=True)
+        filtros = consulta.validated_data
+        pagina = selectors.obtener_pagina_de_bitacora(
+            texto=filtros['q'].strip(),
+            accion=filtros['accion'],
+            desde=filtros['desde'],
+            hasta=filtros['hasta'],
+            pagina=filtros['page'],
+            tamanio=filtros['page_size'],
+        )
+        return Response(
+            {
+                'count': pagina['total'],
+                'page': pagina['pagina'],
+                'page_size': pagina['tamanio'],
+                'total_pages': pagina['paginas'],
+                'acciones': cached('configuracion-bitacora:acciones', TTL_CATALOGOS, selectors.listar_acciones_de_bitacora),
+                'results': BitacoraSerializer(pagina['registros'], many=True).data,
+            }
         )

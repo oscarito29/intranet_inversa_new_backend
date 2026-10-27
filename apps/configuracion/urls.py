@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     ActividadDetailView,
     ActividadesView,
+    BitacoraView,
     ComunicadoDetailView,
     ComunicadosView,
     CumpleañosView,
@@ -25,5 +26,6 @@ urlpatterns = [
     path('comunicados/<int:comunicado_id>/', ComunicadoDetailView.as_view(), name='configuracion-comunicado-detail'),
     path('actividades/', ActividadesView.as_view(), name='configuracion-actividades'),
     path('actividades/<int:actividad_id>/', ActividadDetailView.as_view(), name='configuracion-actividad-detail'),
+    path('bitacora/', BitacoraView.as_view(), name='configuracion-bitacora'),
     path('cumpleanos/', CumpleañosView.as_view(), name='configuracion-cumpleanos'),
 ]
