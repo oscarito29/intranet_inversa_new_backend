@@ -11,6 +11,8 @@ from . import selectors, services
 from .models import Corporacion, Financiera, Rol
 from .serializers import (
     CorporacionSerializer,
+    DirectorioConsultaSerializer,
+    DirectorioSerializer,
     FinancieraSerializer,
     PasswordTemporalSerializer,
     RolSerializer,
@@ -55,6 +57,26 @@ class CorporacionesListView(APIView):
             lambda: list(CorporacionSerializer(Corporacion.objects.all(), many=True).data),
         )
         return Response(datos)
+
+
+class DirectorioView(APIView):
+    """GET /api/v1/usuarios/directorio/ — cualquier usuario autenticado; solo personas activas y datos de contacto."""
+
+    @extend_schema(
+        summary='Directorio de personas',
+        description='Personas activas con nombre, correo, celular, entidad y el día y mes de su cumpleaños. Filtra por texto (`q`, '
+        'en nombre, correo o entidad) y por entidad (`entidad`). No incluye dirección ni año de nacimiento. Trae hasta 200; '
+        '`total` cuenta todas las que coinciden.',
+        tags=[TAG],
+        parameters=[DirectorioConsultaSerializer],
+        responses=DirectorioSerializer,
+    )
+    def get(self, request: Request) -> Response:
+        consulta = DirectorioConsultaSerializer(data=request.query_params)
+        consulta.is_valid(raise_exception=True)
+        filtros = consulta.validated_data
+        directorio = selectors.listar_directorio(texto=filtros['q'].strip(), financiera_id=filtros['entidad'])
+        return Response(DirectorioSerializer(directorio).data)
 
 
 class UsuariosListCreateView(APIView):

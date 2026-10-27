@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from apps.financial.models import Bitacora
 
@@ -14,6 +14,24 @@ def descripcion_cambio_password(email: str) -> str:
 
 def listar_usuarios() -> QuerySet[Usuario]:
     return Usuario.objects.order_by('name')
+
+
+DIRECTORIO_MAXIMO = 200
+
+
+def listar_directorio(texto: str = '', financiera_id: str = '') -> dict:
+    """
+    Las personas activas con lo que se comparte en el directorio. `texto` busca en el nombre, el correo y la entidad.
+    Trae como máximo `DIRECTORIO_MAXIMO`; `total` dice cuántas coinciden en realidad, para avisar si hay más.
+    Solo esas columnas: la dirección y la fecha de nacimiento completa (con el año) no salen de aquí.
+    """
+    consulta = Usuario.objects.filter(estado='A', deleted_at__isnull=True).select_related('financiera__corporacion')
+    if texto:
+        consulta = consulta.filter(Q(name__icontains=texto) | Q(email__icontains=texto) | Q(financiera__nombre__icontains=texto))
+    if financiera_id:
+        consulta = consulta.filter(financiera_id=financiera_id)
+    consulta = consulta.order_by('name', 'id')
+    return {'total': consulta.count(), 'personas': list(consulta[:DIRECTORIO_MAXIMO])}
 
 
 def obtener_usuario(usuario_id: int) -> Usuario:

@@ -93,6 +93,41 @@ class FinancieraSerializer(serializers.ModelSerializer):
         fields = ('id', 'nombre', 'id_corporacion')
 
 
+class DirectorioPersonaSerializer(serializers.Serializer):
+    """
+    Una persona en el directorio. Del cumpleaños solo salen el día y el mes: el año es un dato personal que
+    el resto del equipo no necesita.
+    """
+
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    email = serializers.EmailField()
+    telefono = serializers.CharField(source='phone_number')
+    entidad = serializers.CharField(source='financiera.nombre')
+    corporacion = serializers.CharField(source='financiera.corporacion.tipo_corporacion')
+    foto = serializers.CharField(source='picture', allow_null=True)
+    cumple_dia = serializers.SerializerMethodField()
+    cumple_mes = serializers.SerializerMethodField()
+
+    def get_cumple_dia(self, usuario: Usuario) -> int | None:
+        return usuario.fecha_nacimiento.day if usuario.fecha_nacimiento else None
+
+    def get_cumple_mes(self, usuario: Usuario) -> int | None:
+        return usuario.fecha_nacimiento.month if usuario.fecha_nacimiento else None
+
+
+class DirectorioConsultaSerializer(serializers.Serializer):
+    """Parámetros de `GET /usuarios/directorio/`."""
+
+    q = serializers.CharField(required=False, allow_blank=True, max_length=100, default='')
+    entidad = serializers.CharField(required=False, allow_blank=True, max_length=11, default='')
+
+
+class DirectorioSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    personas = DirectorioPersonaSerializer(many=True)
+
+
 class UsuarioListSerializer(serializers.ModelSerializer):
     """Espejo exacto de `UserDto` en el frontend (`features/users/api/user.dto.ts`)."""
 
