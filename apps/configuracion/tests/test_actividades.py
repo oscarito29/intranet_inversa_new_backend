@@ -39,6 +39,14 @@ class CrearActividadTests(ApiTestCase):
     def test_una_hora_con_formato_invalido_es_400(self):
         self.assertEqual(self._crear(hora_desde='mañana').status_code, 400)
 
+    def test_un_cuerpo_que_no_es_un_objeto_es_400_y_no_un_error_del_servidor(self):
+        for cuerpo in ([1, 2], 'texto', 5):
+            with self.subTest(cuerpo=cuerpo):
+                respuesta = self.cliente_admin.post(reverse('configuracion-actividades'), cuerpo, format='json')
+
+                self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(Actividad.objects.count(), 0)
+
     def test_una_fecha_invalida_es_400(self):
         self.assertEqual(self._crear(fecha='no-es-fecha').status_code, 400)
 

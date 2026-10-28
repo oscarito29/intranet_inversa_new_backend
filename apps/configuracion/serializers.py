@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from rest_framework import serializers
 
 from apps.core.campos import ArchivoUrlField
@@ -83,6 +85,8 @@ class ActividadWriteSerializer(serializers.Serializer):
     hora_hasta = serializers.TimeField(required=False, allow_null=True, default=None)
 
     def to_internal_value(self, data):
+        if not isinstance(data, Mapping):
+            return super().to_internal_value(data)  # una lista o un texto: DRF responde 400 «se esperaba un diccionario»
         datos = data.copy() if hasattr(data, 'copy') else dict(data)
         for campo in ('hora_desde', 'hora_hasta'):
             if datos.get(campo) == '':
