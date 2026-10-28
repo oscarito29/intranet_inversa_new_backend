@@ -106,11 +106,11 @@ class CumpleañoSerializer(serializers.ModelSerializer):
         model = Usuario
         fields = ('id', 'name', 'cumple_dia', 'cumple_mes')
 
-    def get_cumple_dia(self, usuario: Usuario) -> int:
-        return usuario.fecha_nacimiento.day
+    def get_cumple_dia(self, usuario: Usuario) -> int | None:
+        return usuario.fecha_nacimiento.day if usuario.fecha_nacimiento else None
 
-    def get_cumple_mes(self, usuario: Usuario) -> int:
-        return usuario.fecha_nacimiento.month
+    def get_cumple_mes(self, usuario: Usuario) -> int | None:
+        return usuario.fecha_nacimiento.month if usuario.fecha_nacimiento else None
 
 
 class BitacoraSerializer(serializers.Serializer):
@@ -131,7 +131,7 @@ class BitacoraConsultaSerializer(serializers.Serializer):
     page = serializers.IntegerField(required=False, min_value=1, default=1)
     page_size = serializers.IntegerField(required=False, min_value=1, max_value=100, default=25)
 
-    def validate(self, atributos):
-        if atributos['desde'] and atributos['hasta'] and atributos['hasta'] < atributos['desde']:
+    def validate(self, attrs):
+        if attrs['desde'] and attrs['hasta'] and attrs['hasta'] < attrs['desde']:
             raise serializers.ValidationError({'hasta': 'La fecha final no puede ser anterior a la inicial.'})
-        return atributos
+        return attrs

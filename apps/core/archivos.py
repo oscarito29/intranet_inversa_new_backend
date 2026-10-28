@@ -2,7 +2,7 @@ from urllib.parse import unquote, urlparse
 
 from django.conf import settings
 from django.core.files.storage import default_storage
-from django.core.files.uploadedfile import UploadedFile
+from django.core.files.base import File
 from django.db import transaction
 
 # Lo que se guarda en la base para un archivo subido con este sistema: `storage:<clave>`. La clave es estable; la
@@ -11,7 +11,7 @@ from django.db import transaction
 PREFIJO_STORAGE = 'storage:'
 
 
-def guardar_archivo(clave: str, archivo: UploadedFile) -> str:
+def guardar_archivo(clave: str, archivo: File) -> str:
     """Guarda el archivo en el storage por defecto (disco en desarrollo, S3 en producción) y devuelve el valor para la base."""
     return PREFIJO_STORAGE + default_storage.save(clave, archivo)
 
@@ -60,11 +60,13 @@ def borrar_archivo_local(ruta: str | None) -> None:
     transaction.on_commit(lambda: default_storage.delete(nombre))
 
 
-def archivo_local_disponible(url: str) -> bool:
+def archivo_local_disponible(url: str | None) -> bool:
     """
     Si el archivo de una URL guardada en la base existe de verdad. Solo se puede comprobar el storage local
     (bajo MEDIA_URL); las URLs absolutas (S3) se dan por disponibles porque no se consulta la nube por cada fila.
     """
+    if not url:
+        return False
     if url.startswith(('http://', 'https://')):
         return True
     if url.startswith(PREFIJO_STORAGE):

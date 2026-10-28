@@ -20,18 +20,18 @@ def _validar_imagen(archivo: UploadedFile) -> None:
     extension = ('.' + nombre.rsplit('.', 1)[-1].lower()) if '.' in nombre else ''
     if extension not in EXTENSIONES_PERMITIDAS:
         raise ValidationError(f'Tipo de imagen no permitido ({extension or "sin extensión"}).')
-    if archivo.size > TAMANIO_MAXIMO_BYTES:
+    if (archivo.size or 0) > TAMANIO_MAXIMO_BYTES:
         raise ValidationError('La imagen supera el tamaño máximo permitido (5MB).')
     validar_contenido(archivo)
 
 
 def guardar_imagen_carrusel(archivo: UploadedFile) -> str:
     _validar_imagen(archivo)
-    key = f'imagenes-carrusel/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name)}'
+    key = f'imagenes-carrusel/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name or '')}'
     return guardar_archivo(key, archivo)
 
 
 def guardar_imagen_comunicado(archivo: UploadedFile) -> str:
     _validar_imagen(archivo)
-    key = f'comunicados/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name)}'
+    key = f'comunicados/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name or '')}'
     return guardar_archivo(key, archivo)

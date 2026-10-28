@@ -5,7 +5,7 @@ from django.utils import timezone
 from openpyxl import load_workbook
 
 from apps.core.exportacion import TIPO_XLSX
-from apps.core.testing import ApiTestCase, cliente_de, crear_usuario
+from apps.core.testing import hoja_activa, ApiTestCase, cliente_de, crear_usuario
 from apps.financial.models import Documento
 
 PERIODO = {'anio': 2026, 'mes': 10, 'corporacion': '001'}
@@ -27,7 +27,7 @@ def _documento(estado=Documento.PENDIENTE, financiera_id='001', **extra) -> Docu
 
 
 def _filas(respuesta) -> list[list]:
-    hoja = load_workbook(BytesIO(respuesta.content)).active
+    hoja = hoja_activa(respuesta.content)
     return [[celda.value for celda in fila] for fila in hoja.iter_rows(min_row=2)]
 
 
@@ -50,7 +50,7 @@ class ExportarPeriodoTests(ApiTestCase):
         _documento(estado=Documento.APROBADO, financiera_id='002', nombre_archivo='b.pdf')
 
         respuesta = self._exportar()
-        hoja = load_workbook(BytesIO(respuesta.content)).active
+        hoja = hoja_activa(respuesta.content)
         filas = _filas(respuesta)
 
         self.assertEqual([celda.value for celda in hoja[1]], ['Financiera', 'Estado', 'Archivo', 'Fecha de subida', 'Motivo'])

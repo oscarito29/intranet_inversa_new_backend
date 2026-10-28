@@ -10,5 +10,5 @@ class ArchivoUrlField(serializers.CharField):
         kwargs.setdefault('read_only', True)
         super().__init__(**kwargs)
 
-    def to_representation(self, valor: str) -> str | None:
-        return url_de_valor(valor)
+    def to_representation(self, value: str) -> str:
+        return url_de_valor(value) or ''

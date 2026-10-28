@@ -1,3 +1,4 @@
+from rest_framework.response import Response
 from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist, ValidationError as DjangoValidationError
 from django.db import IntegrityError
@@ -56,20 +57,26 @@ class CacheTests(TestCase):
         self.assertEqual(self.llamadas, 2)
 
 
+def _manejar(excepcion: Exception) -> Response:
+    respuesta = custom_exception_handler(excepcion, {})
+    assert respuesta is not None, 'el manejador debe responder a esta excepción'
+    return respuesta
+
+
 class ManejadorDeExcepcionesTests(SimpleTestCase):
     def test_no_existe_es_404(self):
-        respuesta = custom_exception_handler(ObjectDoesNotExist(), {})
+        respuesta = _manejar(ObjectDoesNotExist())
 
         self.assertEqual(respuesta.status_code, 404)
         self.assertEqual(respuesta.data['detail'], 'El registro solicitado no existe.')
 
     def test_validacion_de_django_sin_corchetes(self):
-        simple = custom_exception_handler(DjangoValidationError('Ya existe.'), {})
-        por_campo = custom_exception_handler(DjangoValidationError({'name': 'Ya existe.'}), {})
+        simple = _manejar(DjangoValidationError('Ya existe.'))
+        por_campo = _manejar(DjangoValidationError({'name': 'Ya existe.'}))
 
         self.assertEqual(simple.status_code, 400)
         self.assertEqual(simple.data, {'detail': 'Ya existe.'})
         self.assertEqual(por_campo.data['name'], ['Ya existe.'])
 
     def test_integridad_es_400(self):
-        self.assertEqual(custom_exception_handler(IntegrityError(), {}).status_code, 400)
+        self.assertEqual(_manejar(IntegrityError()).status_code, 400)

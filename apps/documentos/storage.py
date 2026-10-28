@@ -20,7 +20,7 @@ def validar_archivo(archivo: UploadedFile) -> None:
     extension = ('.' + nombre.rsplit('.', 1)[-1].lower()) if '.' in nombre else ''
     if extension not in EXTENSIONES_PERMITIDAS:
         raise ValidationError(f'Tipo de archivo no permitido ({extension or "sin extensión"}).')
-    if archivo.size > TAMANIO_MAXIMO_BYTES:
+    if (archivo.size or 0) > TAMANIO_MAXIMO_BYTES:
         raise ValidationError('El archivo supera el tamaño máximo permitido (15MB).')
     validar_contenido(archivo)
 
@@ -41,6 +41,6 @@ def guardar_documento_institucional(archivo: UploadedFile, category_id: int) -> 
     S3Boto3Storage vía DEFAULT_FILE_STORAGE, sin tocar este código.
     """
     validar_archivo(archivo)
-    nombre_sanitizado = _sanitizar_nombre(archivo.name)
+    nombre_sanitizado = _sanitizar_nombre(archivo.name or '')
     key = f'documentos-institucionales/{category_id}/{uuid.uuid4().hex}_{nombre_sanitizado}'
     return guardar_archivo(key, archivo)

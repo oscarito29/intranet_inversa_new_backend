@@ -41,6 +41,10 @@ API docs: `http://127.0.0.1:8010/api/v1/docs/` (Swagger).
 python manage.py test --settings=config.settings.testing
 ```
 
+**Tipos:** `pip install -r requirements/development.txt` instala los tipos de Django, DRF y openpyxl, y `pyrefly check`
+revisa todo el proyecto (hoy sin ningún error). Sin esos paquetes el editor marca como error casi cada línea de las
+pruebas (`respuesta.data`, `Modelo.objects`...).
+
 SQLite en memoria; no toca la base local. Las reglas del backend están en `SKILLS_BACKEND.md` y las decisiones en
 `docs/estandares/`.
 

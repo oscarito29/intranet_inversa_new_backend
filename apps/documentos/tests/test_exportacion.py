@@ -5,7 +5,7 @@ from django.urls import reverse
 from openpyxl import load_workbook
 
 from apps.core.exportacion import TIPO_XLSX
-from apps.core.testing import ApiTestCase, cliente_de
+from apps.core.testing import hoja_activa, ApiTestCase, cliente_de
 from apps.documentos import selectors
 from apps.documentos.models import DocsEtiqueta, Etiqueta, EtiquetaRol
 
@@ -13,7 +13,7 @@ from .test_documentos import _categoria, _documento
 
 
 def _filas(respuesta) -> list[list]:
-    hoja = load_workbook(BytesIO(respuesta.content)).active
+    hoja = hoja_activa(respuesta.content)
     return [[celda.value for celda in fila] for fila in hoja.iter_rows(min_row=2)]
 
 
@@ -38,7 +38,7 @@ class ExportarDocumentosTests(ApiTestCase):
         _documento(self.contabilidad, nombre='balance.pdf')
 
         respuesta = self._exportar()
-        hoja = load_workbook(BytesIO(respuesta.content)).active
+        hoja = hoja_activa(respuesta.content)
 
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(respuesta['Content-Type'], TIPO_XLSX)

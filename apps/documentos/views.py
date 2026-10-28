@@ -3,12 +3,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.cache import cached
 from apps.core.exportacion import TIPO_XLSX, generar_xlsx, respuesta_xlsx
+from apps.core.peticiones import PeticionAutenticada
 from apps.core.permissions import Permiso, requiere
 
 from . import selectors, services
@@ -31,7 +31,7 @@ class CategoriasView(APIView):
     permission_classes = [requiere(Permiso.DOCUMENTOS_GESTIONAR, solo_escritura=True)]
 
     @extend_schema(summary='Listar categorías', tags=[TAG], responses=CategorySerializer(many=True))
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         datos = cached(
             'documentos:categorias',
             TTL_CATALOGOS,
@@ -40,7 +40,7 @@ class CategoriasView(APIView):
         return Response(datos)
 
     @extend_schema(summary='Crear categoría', tags=[TAG], request=CategoryWriteSerializer, responses={201: CategorySerializer})
-    def post(self, request: Request) -> Response:
+    def post(self, request: PeticionAutenticada) -> Response:
         serializer = CategoryWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         categoria = services.crear_categoria(request.user, **serializer.validated_data)
@@ -51,7 +51,7 @@ class CategoriaDetailView(APIView):
     permission_classes = [requiere(Permiso.DOCUMENTOS_GESTIONAR)]
 
     @extend_schema(summary='Actualizar categoría', tags=[TAG], request=CategoryWriteSerializer, responses=CategorySerializer)
-    def put(self, request: Request, category_id: int) -> Response:
+    def put(self, request: PeticionAutenticada, category_id: int) -> Response:
         serializer = CategoryWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         categoria = services.actualizar_categoria(request.user, category_id, **serializer.validated_data)
@@ -64,21 +64,21 @@ class CategoriaDetailView(APIView):
         request=CategoryEstadoSerializer,
         responses=CategorySerializer,
     )
-    def patch(self, request: Request, category_id: int) -> Response:
+    def patch(self, request: PeticionAutenticada, category_id: int) -> Response:
         serializer = CategoryEstadoSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         categoria = services.cambiar_estado_categoria(request.user, category_id, serializer.validated_data['estado'])
         return Response(CategorySerializer(selectors.obtener_categoria(categoria.id)).data)
 
     @extend_schema(summary='Eliminar categoría', tags=[TAG], responses={204: None})
-    def delete(self, request: Request, category_id: int) -> Response:
+    def delete(self, request: PeticionAutenticada, category_id: int) -> Response:
         services.eliminar_categoria(request.user, category_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class EtiquetasListView(APIView):
     @extend_schema(summary='Listar etiquetas (solo lectura, para filtros de documentos)', tags=[TAG], responses=TagSerializer(many=True))
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         datos = cached(
             'etiquetas:por-nombre',
             TTL_CATALOGOS,
@@ -89,7 +89,7 @@ class EtiquetasListView(APIView):
 
 class DocsEtiquetasView(APIView):
     @extend_schema(summary='Mapa documento_id -> [etiqueta_id, ...] de los documentos visibles para el rol', tags=[TAG])
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         return Response(selectors.listar_docs_etiquetas(request.user))
 
 
@@ -102,7 +102,7 @@ class DocumentosExportarView(APIView):
         parameters=[DocumentosConsultaSerializer],
         responses={(200, TIPO_XLSX): OpenApiTypes.BINARY},
     )
-    def get(self, request: Request) -> HttpResponse:
+    def get(self, request: PeticionAutenticada) -> HttpResponse:
         consulta = DocumentosConsultaSerializer(data=request.query_params)
         consulta.is_valid(raise_exception=True)
         filtros = consulta.validated_data
@@ -129,7 +129,7 @@ class DocumentosView(APIView):
         tags=[TAG],
         parameters=[DocumentosConsultaSerializer],
     )
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         consulta = DocumentosConsultaSerializer(data=request.query_params)
         consulta.is_valid(raise_exception=True)
         filtros = consulta.validated_data
@@ -160,7 +160,7 @@ class DocumentosView(APIView):
         request=DocumentoSubidaSerializer,
         responses={201: DocumentSerializer},
     )
-    def post(self, request: Request) -> Response:
+    def post(self, request: PeticionAutenticada) -> Response:
         entrada = DocumentoSubidaSerializer(data=request.data)
         entrada.is_valid(raise_exception=True)
         datos = entrada.validated_data
@@ -184,7 +184,7 @@ class DocumentoReemplazarView(APIView):
         request=DocumentoSubidaSerializer,
         responses={201: DocumentSerializer},
     )
-    def post(self, request: Request, documento_id: int) -> Response:
+    def post(self, request: PeticionAutenticada, documento_id: int) -> Response:
         entrada = DocumentoSubidaSerializer(data=request.data)
         entrada.is_valid(raise_exception=True)
         datos = entrada.validated_data

@@ -31,6 +31,8 @@ def _valor_de_celda(valor: Any) -> Any:
 def generar_xlsx(hoja: str, encabezados: Sequence[str], filas: Iterable[Sequence[Any]]) -> bytes:
     libro = Workbook()
     pagina = libro.active
+    if pagina is None:  # un libro nuevo siempre trae una hoja; esto solo le dice al verificador de tipos que existe
+        pagina = libro.create_sheet()
     pagina.title = hoja[:31]  # Excel limita el nombre de la hoja a 31 caracteres
 
     pagina.append(list(encabezados))

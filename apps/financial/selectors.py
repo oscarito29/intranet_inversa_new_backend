@@ -137,7 +137,8 @@ def obtener_periodo(usuario: Usuario, anio: int, mes_id: int, corporacion_id: st
         anio_id=anio, mes_id=mes_id, corporacion_id=corporacion_id, financiera_id__in=financieras.values('pk')
     ).order_by('fecha', 'id')
     for documento in documentos:
-        ultimo_por_financiera[documento.financiera_id] = documento
+        if documento.financiera_id is not None:
+            ultimo_por_financiera[documento.financiera_id] = documento
 
     filas = []
     por_estado = {SIN_CARGAR: 0, 'pendiente': 0, 'aprobado': 0, 'rechazado': 0, 'revocado': 0}
@@ -203,19 +204,27 @@ def obtener_historial(usuario: Usuario, documento_id: int) -> list[dict]:
     quién la hizo, así que se busca en la bitácora (la entrada que escribe `revocar_documento`).
     """
     documento = get_object_or_404(Documento, pk=documento_id)
+    if documento.financiera_id is None:
+        raise PermissionDenied('Este documento no tiene una financiera asignada.')
     if not puede_ver_financiera(usuario, documento.financiera_id):
         raise PermissionDenied('No tienes acceso a los documentos de esta financiera.')
 
     revocacion = (
         Bitacora.objects.filter(descripcion=f'Desaprobación de Estado Financiero {documento.id}').order_by('-fecha').first()
     )
-    eventos = [
+    from datetime import datetime
+    eventos: list[tuple[str, datetime | None, str | None, str | None]] = [
         ('subido', documento.fecha, documento.email_usuario_sube, None),
         ('aprobado', documento.fecha_aprueba, documento.email_usuario_aprueba, None),
         ('rechazado', documento.fecha_rechaza, documento.email_usuario_rechaza, documento.motivo_rechazo),
         ('revocado', documento.fecha_desaprueba, revocacion.usuario if revocacion else None, documento.motivo_desaprueba),
     ]
+    eventos_con_fecha: list[tuple[str, datetime, str | None, str | None]] = [
+        (tipo, fecha, email, motivo)
+        for tipo, fecha, email, motivo in eventos
+        if fecha is not None
+    ]
     return [
         {'tipo': tipo, 'fecha': fecha, 'email': email, 'motivo': motivo}
-        for tipo, fecha, email, motivo in sorted((e for e in eventos if e[1] is not None), key=lambda e: e[1])
+        for tipo, fecha, email, motivo in sorted(eventos_con_fecha, key=lambda e: e[1])
     ]

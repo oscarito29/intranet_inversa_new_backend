@@ -19,7 +19,7 @@ class SaludView(APIView):
     de la base. El detalle va al log.
     """
 
-    authentication_classes: list = []
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     @extend_schema(responses={200: dict, 503: dict}, summary='Estado del servidor', tags=['Sistema'])

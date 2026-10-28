@@ -43,6 +43,8 @@ PERMISOS_POR_ROL: dict[int, frozenset[Permiso]] = {
 
 def permisos_del_rol(rol_id: int | None) -> frozenset[Permiso]:
     """Un rol que no está en la tabla (por ejemplo, uno que alguien agregue a la base sin pasar por aquí) no puede nada."""
+    if rol_id is None:
+        return frozenset()
     return PERMISOS_POR_ROL.get(rol_id, frozenset())
 
 

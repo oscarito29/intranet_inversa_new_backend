@@ -124,7 +124,7 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'config.exception_handler.custom_exception_handler',
     # Detrás de un proxy o balanceador hay que decir cuántos hay, para que el límite use la dirección real del
     # cliente y no la del proxy (que bloquearía a todos a la vez). Se fija en producción con DRF_NUM_PROXIES.
-    'NUM_PROXIES': env.int('DRF_NUM_PROXIES', default=None),
+    'NUM_PROXIES': env.int('DRF_NUM_PROXIES', default=0) or None,
     'DEFAULT_THROTTLE_RATES': {
         'login': env('LOGIN_THROTTLE_RATE', default='20/min'),
         'password': env('PASSWORD_THROTTLE_RATE', default='10/min'),

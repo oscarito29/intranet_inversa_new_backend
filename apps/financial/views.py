@@ -3,12 +3,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.cache import cached
 from apps.core.exportacion import TIPO_XLSX, generar_xlsx, respuesta_xlsx
+from apps.core.peticiones import PeticionAutenticada
 from apps.core.permissions import Permiso, permisos_de, requiere
 from apps.usuarios.alcance import entidades_de
 
@@ -49,7 +49,7 @@ class CatalogosView(APIView):
         description='Años, meses, corporaciones con sus financieras, rango de fechas vigente y el acceso del usuario: sus permisos y las entidades que puede ver.',
         tags=[TAG],
     )
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         usuario = request.user
         return Response(
             {
@@ -72,7 +72,7 @@ class ResumenView(APIView):
         description='Pendientes de aprobar, rechazados del mes y documentos nuevos de la semana, según el alcance del usuario.',
         tags=[TAG],
     )
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         return Response(selectors.obtener_resumen(request.user))
 
 
@@ -84,7 +84,7 @@ class NotificacionesView(APIView):
         tags=[TAG],
         responses=NotificacionesSerializer,
     )
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         return Response(NotificacionesSerializer(selectors.obtener_notificaciones(request.user)).data)
 
 
@@ -100,7 +100,7 @@ class PeriodoView(APIView):
             OpenApiParameter('corporacion', str, required=True),
         ],
     )
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         parametros = PeriodoQuerySerializer(data=request.query_params)
         parametros.is_valid(raise_exception=True)
         datos = parametros.validated_data
@@ -122,7 +122,7 @@ class ExportarPeriodoView(APIView):
         ],
         responses={(200, TIPO_XLSX): OpenApiTypes.BINARY},
     )
-    def get(self, request: Request) -> HttpResponse:
+    def get(self, request: PeticionAutenticada) -> HttpResponse:
         parametros = PeriodoQuerySerializer(data=request.query_params)
         parametros.is_valid(raise_exception=True)
         datos = parametros.validated_data
@@ -148,7 +148,7 @@ class DocumentosView(APIView):
         ],
         responses=DocumentoSerializer(many=True),
     )
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         parametros = DocumentosQuerySerializer(data=request.query_params)
         parametros.is_valid(raise_exception=True)
         datos = parametros.validated_data
@@ -162,7 +162,7 @@ class DocumentosView(APIView):
         return Response(DocumentoSerializer(documentos, many=True).data)
 
     @extend_schema(summary='Subir un documento financiero', tags=[TAG], request=SubirDocumentoSerializer, responses={201: DocumentoSerializer})
-    def post(self, request: Request) -> Response:
+    def post(self, request: PeticionAutenticada) -> Response:
         entrada = SubirDocumentoSerializer(data=request.data)
         entrada.is_valid(raise_exception=True)
         datos = entrada.validated_data
@@ -179,7 +179,7 @@ class DocumentosView(APIView):
 
 class DocumentoHistorialView(APIView):
     @extend_schema(summary='Historial de un documento: quién lo subió, aprobó, rechazó o revocó, y cuándo', tags=[TAG], responses=HistorialEventoSerializer(many=True))
-    def get(self, request: Request, documento_id: int) -> Response:
+    def get(self, request: PeticionAutenticada, documento_id: int) -> Response:
         return Response(HistorialEventoSerializer(selectors.obtener_historial(request.user, documento_id), many=True).data)
 
 
@@ -187,7 +187,7 @@ class DocumentoAprobarView(APIView):
     permission_classes = [requiere(Permiso.FINANCIERO_APROBAR)]
 
     @extend_schema(summary='Aprobar un estado financiero', tags=[TAG], request=None, responses=DocumentoSerializer)
-    def post(self, request: Request, documento_id: int) -> Response:
+    def post(self, request: PeticionAutenticada, documento_id: int) -> Response:
         documento = services.aprobar_documento(request.user, documento_id)
         return Response(DocumentoSerializer(documento).data)
 
@@ -201,7 +201,7 @@ class DocumentoRechazarView(APIView):
         request=RechazarRevocarRequestSerializer,
         responses=DocumentoSerializer,
     )
-    def post(self, request: Request, documento_id: int) -> Response:
+    def post(self, request: PeticionAutenticada, documento_id: int) -> Response:
         serializer = RechazarRevocarRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         documento = services.rechazar_documento(request.user, documento_id, serializer.validated_data['motivo'])
@@ -217,7 +217,7 @@ class DocumentoRevocarView(APIView):
         request=RechazarRevocarRequestSerializer,
         responses=DocumentoSerializer,
     )
-    def post(self, request: Request, documento_id: int) -> Response:
+    def post(self, request: PeticionAutenticada, documento_id: int) -> Response:
         serializer = RechazarRevocarRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         documento = services.revocar_documento(request.user, documento_id, serializer.validated_data['motivo'])
@@ -233,7 +233,7 @@ class RangoFechasView(APIView):
         request=RangoFechasRequestSerializer,
         responses={201: RangoFechasRequestSerializer},
     )
-    def post(self, request: Request) -> Response:
+    def post(self, request: PeticionAutenticada) -> Response:
         serializer = RangoFechasRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         rango = services.guardar_rango_fechas(request.user, serializer.validated_data['desde'], serializer.validated_data['hasta'])

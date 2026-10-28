@@ -2,9 +2,12 @@
 
 import hashlib
 import itertools
+from io import BytesIO
 
 from django.core.cache import cache
 from django.test import TestCase
+from openpyxl import load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 from rest_framework.test import APIClient
 
 from apps.financial.models import Anio, Mes
@@ -45,6 +48,13 @@ def crear_usuario(rol_id: int = 2, financiera_id: str = '001', password: str = '
     usuario.set_password(password)
     usuario.save()
     return usuario
+
+
+def hoja_activa(contenido: bytes) -> Worksheet:
+    """La hoja de un Excel descargado, para revisar lo que contiene."""
+    hoja = load_workbook(BytesIO(contenido)).active
+    assert isinstance(hoja, Worksheet), 'el libro no trae una hoja de cálculo'
+    return hoja
 
 
 def hash_md5_legado(password: str) -> str:

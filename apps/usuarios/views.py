@@ -13,6 +13,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.core.bitacora import registrar_bitacora
+from apps.core.peticiones import PeticionAutenticada, cuerpo_como_diccionario
 
 from . import bloqueo, services
 from .models import Usuario
@@ -26,6 +27,11 @@ from .serializers import (
 
 TAG = 'Autenticación'
 RUTA_COOKIE = '/api/v1/auth/'
+
+
+def _refresh_de(texto: str) -> RefreshToken:
+    """SimpleJWT acepta el texto del token, aunque su anotación de tipo diga que solo recibe un `Token`."""
+    return RefreshToken(texto)  # type: ignore[arg-type]
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
@@ -43,7 +49,7 @@ class LoginView(TokenObtainPairView):
     """POST /api/v1/auth/token/ — autentica contra la tabla `user` existente."""
 
     serializer_class = LoginSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = (permissions.AllowAny,)
     # Tope por dirección, aparte del bloqueo por correo: frena a quien prueba muchos correos desde un mismo lugar.
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'login'
@@ -54,7 +60,7 @@ class LoginView(TokenObtainPairView):
         tags=[TAG],
     )
     def post(self, request: Request, *args, **kwargs) -> Response:
-        correo = str(request.data.get('email', '')).strip().lower()
+        correo = str(cuerpo_como_diccionario(request).get('email', '')).strip().lower()
         espera = bloqueo.segundos_de_bloqueo(correo)
         if espera:
             raise Throttled(wait=espera)
@@ -71,7 +77,7 @@ class LoginView(TokenObtainPairView):
         bloqueo.limpiar(correo)
         data = serializer.validated_data
         refresh_token = str(data.pop('refresh'))
-        registrar_bitacora(serializer.user.email, 'Login', 'Inicia sesión')
+        registrar_bitacora(data['user']['email'], 'Login', 'Inicia sesión')
 
         response = Response({'access': str(data['access']), 'user': data['user']}, status=status.HTTP_200_OK)
         _set_refresh_cookie(response, refresh_token)
@@ -90,7 +96,7 @@ class RefreshView(APIView):
             raise ValidationError({'detail': 'No hay sesión activa.'})
 
         try:
-            usuario_id = RefreshToken(raw_refresh_token)['user_id']
+            usuario_id = _refresh_de(raw_refresh_token)['user_id']
             if not Usuario.objects.filter(pk=usuario_id, estado='A').exists():
                 raise TokenError('Usuario inactivo.')
             serializer = TokenRefreshSerializer(data={'refresh': raw_refresh_token})
@@ -115,7 +121,7 @@ class LogoutView(APIView):
         raw_refresh_token = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
         if raw_refresh_token:
             try:
-                token = RefreshToken(raw_refresh_token)
+                token = _refresh_de(raw_refresh_token)
                 correo = Usuario.objects.filter(pk=token['user_id']).values_list('email', flat=True).first()
                 token.blacklist()
                 if correo:
@@ -131,7 +137,7 @@ class PerfilView(APIView):
     """GET/PATCH /api/v1/auth/perfil/ — datos editables del propio usuario."""
 
     @extend_schema(summary='Perfil del usuario autenticado', tags=[TAG], responses=PerfilSerializer)
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         return Response(PerfilSerializer(request.user).data)
 
     @extend_schema(
@@ -140,7 +146,7 @@ class PerfilView(APIView):
         request=PerfilUpdateSerializer,
         responses=PerfilSerializer,
     )
-    def patch(self, request: Request) -> Response:
+    def patch(self, request: PeticionAutenticada) -> Response:
         serializer = PerfilUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         datos = serializer.validated_data
@@ -154,7 +160,7 @@ class PerfilFotoView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(summary='Subir foto de perfil', tags=[TAG], responses=PerfilSerializer)
-    def post(self, request: Request) -> Response:
+    def post(self, request: PeticionAutenticada) -> Response:
         archivo = request.FILES.get('picture')
         if archivo is None:
             raise ValidationError({'picture': 'Selecciona una imagen.'})
@@ -175,7 +181,7 @@ class CambiarPasswordView(APIView):
         request=CambiarPasswordSerializer,
         responses={204: None},
     )
-    def post(self, request: Request) -> Response:
+    def post(self, request: PeticionAutenticada) -> Response:
         serializer = CambiarPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         datos = serializer.validated_data
@@ -187,5 +193,5 @@ class MeView(APIView):
     """GET /api/v1/auth/me/ — datos del usuario autenticado."""
 
     @extend_schema(summary='Usuario autenticado actual', tags=[TAG], responses=UsuarioSerializer)
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         return Response(UsuarioSerializer(request.user).data)

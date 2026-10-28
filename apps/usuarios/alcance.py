@@ -15,7 +15,7 @@ from .models import Usuario, UsuarioEntidad
 def entidades_de(usuario: Usuario) -> frozenset[str]:
     """La entidad principal más las adicionales."""
     adicionales = UsuarioEntidad.objects.filter(usuario_id=usuario.pk).values_list('financiera_id', flat=True)
-    return frozenset({str(usuario.financiera_id), *map(str, adicionales)})
+    return frozenset({usuario.financiera_id, *adicionales})
 
 
 def financieras_visibles(usuario: Usuario) -> frozenset[str] | None:
@@ -27,7 +27,7 @@ def financieras_visibles(usuario: Usuario) -> frozenset[str] | None:
 
 def puede_ver_financiera(usuario: Usuario, financiera_id: str) -> bool:
     visibles = financieras_visibles(usuario)
-    return visibles is None or str(financiera_id) in visibles
+    return visibles is None or financiera_id in visibles
 
 
 def puede_subir_a(usuario: Usuario, financiera_id: str) -> bool:

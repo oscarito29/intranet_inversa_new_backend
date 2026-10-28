@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from django.utils import timezone
 from rest_framework import serializers
@@ -175,7 +176,7 @@ class UsuarioListSerializer(serializers.ModelSerializer):
 
     def get_entidades_adicionales(self, obj: Usuario) -> list[str]:
         # `prefetch_related` en `selectors.listar_usuarios`: sin una consulta por persona.
-        return sorted(str(entidad.financiera_id) for entidad in obj.entidades_adicionales.all())
+        return sorted(entidad.financiera_id for entidad in obj.entidades_adicionales.all())
 
 
 class UsuarioWriteSerializer(serializers.ModelSerializer):
@@ -262,6 +263,6 @@ class LoginSerializer(TokenObtainPairSerializer):
     """
 
     def validate(self, attrs):
-        data = super().validate(attrs)
+        data: dict[str, Any] = {**super().validate(attrs)}
         data['user'] = UsuarioSerializer(self.user).data
         return data

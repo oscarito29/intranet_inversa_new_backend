@@ -64,6 +64,8 @@ class ValorGuardadoTests(SimpleTestCase):
 
         self.assertTrue(archivo_local_disponible('storage:docs/existe.pdf'))
         self.assertFalse(archivo_local_disponible('storage:docs/no-existe.pdf'))
+        self.assertFalse(archivo_local_disponible(None))
+        self.assertFalse(archivo_local_disponible(''))
 
     def test_el_campo_de_serializer_muestra_la_direccion(self):
         campo = ArchivoUrlField()
@@ -135,14 +137,14 @@ class SubidasGuardanLaClaveTests(ApiTestCase):
         respuesta = self.cliente_usuario.post(reverse('financiero-documentos'), datos, format='multipart')
 
         self.assertEqual(respuesta.status_code, 201, respuesta.data)
-        self.assertTrue(Documento.objects.get().ruta_archivo.startswith('storage:documentos/001/001/2026/10/'))
+        self.assertTrue((Documento.objects.get().ruta_archivo or '').startswith('storage:documentos/001/001/2026/10/'))
         self.assertTrue(respuesta.data['ruta_archivo'].startswith('https://archivos.test/documentos/001/001/2026/10/'))
 
     def test_imagen_del_carrusel(self):
         respuesta = self.cliente_admin.post(reverse('configuracion-imagenes'), {'file': SimpleUploadedFile('a.png', PNG)}, format='multipart')
 
         self.assertEqual(respuesta.status_code, 201, respuesta.data)
-        self.assertTrue(Imagen.objects.get().ruta_img.startswith('storage:imagenes-carrusel/'))
+        self.assertTrue((Imagen.objects.get().ruta_img or '').startswith('storage:imagenes-carrusel/'))
         self.assertTrue(respuesta.data['ruta_img'].startswith('https://archivos.test/imagenes-carrusel/'))
 
     def test_foto_de_perfil(self):
@@ -150,14 +152,14 @@ class SubidasGuardanLaClaveTests(ApiTestCase):
 
         self.assertEqual(respuesta.status_code, 200)
         self.usuario.refresh_from_db()
-        self.assertTrue(self.usuario.picture.startswith('storage:perfiles/'))
+        self.assertTrue((self.usuario.picture or '').startswith('storage:perfiles/'))
         self.assertTrue(respuesta.data['picture'].startswith('https://archivos.test/perfiles/'))
         self.assertTrue(self.cliente_usuario.get(reverse('me')).data['picture'].startswith('https://archivos.test/perfiles/'))
 
     def test_cambiar_la_foto_borra_la_anterior_del_storage(self):
         self.cliente_usuario.post(reverse('perfil-foto'), {'picture': SimpleUploadedFile('uno.png', PNG)}, format='multipart')
         self.usuario.refresh_from_db()
-        anterior = self.usuario.picture.removeprefix(PREFIJO_STORAGE)
+        anterior = (self.usuario.picture or '').removeprefix(PREFIJO_STORAGE)
 
         with self.captureOnCommitCallbacks(execute=True):
             self.cliente_usuario.post(reverse('perfil-foto'), {'picture': SimpleUploadedFile('dos.png', PNG)}, format='multipart')
@@ -184,11 +186,16 @@ class OpcionesS3Tests(SimpleTestCase):
                 os.environ.pop(nombre, None)
         return entorno
 
+    def _opciones(self, **variables) -> dict:
+        opciones = opciones_s3(self._env(**variables))
+        assert opciones is not None, 'con bucket configurado debe haber opciones de S3'
+        return opciones
+
     def test_sin_bucket_se_queda_el_disco(self):
         self.assertIsNone(opciones_s3(self._env()))
 
     def test_el_bucket_es_privado_y_las_direcciones_vencen(self):
-        opciones = opciones_s3(self._env(AWS_STORAGE_BUCKET_NAME='mi-bucket'))
+        opciones = self._opciones(AWS_STORAGE_BUCKET_NAME='mi-bucket')
 
         self.assertEqual(opciones['bucket_name'], 'mi-bucket')
         self.assertTrue(opciones['querystring_auth'])
@@ -198,13 +205,13 @@ class OpcionesS3Tests(SimpleTestCase):
         self.assertFalse(opciones['file_overwrite'])  # un archivo nuevo nunca pisa a uno existente
 
     def test_sin_claves_usa_el_rol_de_la_maquina(self):
-        opciones = opciones_s3(self._env(AWS_STORAGE_BUCKET_NAME='mi-bucket'))
+        opciones = self._opciones(AWS_STORAGE_BUCKET_NAME='mi-bucket')
 
         self.assertNotIn('access_key', opciones)
         self.assertNotIn('secret_key', opciones)
 
     def test_con_las_dos_claves_las_usa(self):
-        opciones = opciones_s3(self._env(AWS_STORAGE_BUCKET_NAME='b', AWS_ACCESS_KEY_ID='AK', AWS_SECRET_ACCESS_KEY='SK'))
+        opciones = self._opciones(AWS_STORAGE_BUCKET_NAME='b', AWS_ACCESS_KEY_ID='AK', AWS_SECRET_ACCESS_KEY='SK')
 
         self.assertEqual((opciones['access_key'], opciones['secret_key']), ('AK', 'SK'))
 
@@ -213,14 +220,14 @@ class OpcionesS3Tests(SimpleTestCase):
             opciones_s3(self._env(AWS_STORAGE_BUCKET_NAME='b', AWS_ACCESS_KEY_ID='AK'))
 
     def test_la_expiracion_y_la_region_se_pueden_cambiar(self):
-        opciones = opciones_s3(self._env(AWS_STORAGE_BUCKET_NAME='b', S3_URL_EXPIRA_SEGUNDOS='600', AWS_S3_REGION_NAME='us-east-2'))
+        opciones = self._opciones(AWS_STORAGE_BUCKET_NAME='b', S3_URL_EXPIRA_SEGUNDOS='600', AWS_S3_REGION_NAME='us-east-2')
 
         self.assertEqual((opciones['querystring_expire'], opciones['region_name']), (600, 'us-east-2'))
 
     def test_la_direccion_real_de_s3_va_firmada_y_con_vencimiento(self):
         from storages.backends.s3 import S3Storage
 
-        opciones = opciones_s3(self._env(AWS_STORAGE_BUCKET_NAME='mi-bucket', AWS_ACCESS_KEY_ID='AKIAEJEMPLOEJEMPLO0', AWS_SECRET_ACCESS_KEY='secreta-de-ejemplo', S3_URL_EXPIRA_SEGUNDOS='900'))
+        opciones = self._opciones(AWS_STORAGE_BUCKET_NAME='mi-bucket', AWS_ACCESS_KEY_ID='AKIAEJEMPLOEJEMPLO0', AWS_SECRET_ACCESS_KEY='secreta-de-ejemplo', S3_URL_EXPIRA_SEGUNDOS='900')
         storage = S3Storage(**opciones)
 
         url = storage.url('documentos/001/a.pdf')
@@ -344,7 +351,7 @@ class MigrarArchivosLegadosTests(ApiTestCase):
         self._correr('--aplicar', contenido=PNG)
 
         self.usuario.refresh_from_db()
-        self.assertTrue(self.usuario.picture.startswith('storage:legado/perfiles/'))
+        self.assertTrue((self.usuario.picture or '').startswith('storage:legado/perfiles/'))
         self.assertTrue(Comunicado.objects.get().imagen.startswith('storage:legado/comunicados/'))
         self.assertFalse(io.BytesIO(b'').closed)  # ancla para que el import de io no sobre
 

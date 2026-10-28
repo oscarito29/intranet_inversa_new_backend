@@ -24,7 +24,8 @@ def _mensaje_de_espera(segundos: int | None) -> str:
 
 def custom_exception_handler(exc, context):
     if isinstance(exc, Throttled):
-        exc = Throttled(wait=exc.wait, detail=_mensaje_de_espera(int(exc.wait) if exc.wait else None))
+        espera = getattr(exc, 'wait', None)
+        exc = Throttled(wait=espera, detail=_mensaje_de_espera(int(espera) if espera else None))
     elif isinstance(exc, ObjectDoesNotExist):
         exc = NotFound('El registro solicitado no existe.')
     elif isinstance(exc, DjangoValidationError):

@@ -76,7 +76,7 @@ def guardar_foto_perfil(usuario: Usuario, archivo: UploadedFile) -> Usuario:
     extension = ('.' + nombre.rsplit('.', 1)[-1].lower()) if '.' in nombre else ''
     if extension not in EXTENSIONES_FOTO:
         raise ValidationError({'picture': f'Tipo de imagen no permitido ({extension or "sin extensión"}).'})
-    if archivo.size > TAMANIO_MAXIMO_FOTO_BYTES:
+    if (archivo.size or 0) > TAMANIO_MAXIMO_FOTO_BYTES:
         raise ValidationError({'picture': 'La imagen supera el tamaño máximo permitido (2MB).'})
     try:
         validar_contenido(archivo)
@@ -158,7 +158,7 @@ def _exigir_continuidad(aprobadores_antes: int, administradores_antes: int) -> N
 
 def sincronizar_entidades_adicionales(actor: Usuario, usuario: Usuario, entidades: list[str]) -> bool:
     """Deja exactamente `entidades` como las adicionales de la persona (la principal no cuenta). Devuelve si algo cambió."""
-    deseadas = {str(entidad) for entidad in entidades} - {str(usuario.financiera_id)}
+    deseadas = set(entidades) - {usuario.financiera_id}
     actuales = set(UsuarioEntidad.objects.filter(usuario_id=usuario.pk).values_list('financiera_id', flat=True))
     if deseadas == actuales:
         return False

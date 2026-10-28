@@ -4,11 +4,12 @@ from io import BytesIO
 from django.test import SimpleTestCase
 from openpyxl import load_workbook
 
+from apps.core.testing import hoja_activa
 from apps.core.exportacion import TIPO_XLSX, generar_xlsx, respuesta_xlsx
 
 
 def _abrir(contenido: bytes):
-    return load_workbook(BytesIO(contenido)).active
+    return hoja_activa(contenido)
 
 
 class GenerarXlsxTests(SimpleTestCase):

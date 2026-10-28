@@ -1,3 +1,10 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import ClassVar
+
 from django.utils.encoding import filepath_to_uri
 from rest_framework import serializers
 
@@ -41,13 +48,15 @@ class TagSerializer(serializers.ModelSerializer):
         fields = ('id', 'etiquetaNombre', 'parent_id')
 
 
-def url_de_archivo(fname: str) -> str:
+def url_de_archivo(fname: str | None) -> str:
     """
     `upload.fname` mezcla cuatro formatos: `storage:<clave>` (lo que sube este sistema) se resuelve con el storage; URLs de S3 y rutas `/media/...` ya sirven tal cual;
     el resto son nombres sueltos de antes de la migración, servidos desde `media/legacy-documentos/`.
     """
+    if not fname:
+        return ''
     resuelto = url_de_valor(fname)
-    if resuelto.startswith(('http://', 'https://', '/')):
+    if resuelto and resuelto.startswith(('http://', 'https://', '/')):
         return resuelto
     return f'/media/legacy-documentos/{filepath_to_uri(fname)}'
 
@@ -59,7 +68,7 @@ class DocumentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Upload
-        fields = ('id', 'reemplaza_a', 'fname', 'name', 'area', 'estado', 'fecha', 'tipo', 'tamanio')
+        fields: tuple[str, ...] = ('id', 'reemplaza_a', 'fname', 'name', 'area', 'estado', 'fecha', 'tipo', 'tamanio')
 
     def get_fname(self, obj: Upload) -> str:
         return url_de_archivo(obj.fname)
@@ -73,7 +82,7 @@ class DocumentoListaSerializer(DocumentSerializer):
     versiones = serializers.SerializerMethodField()
 
     class Meta(DocumentSerializer.Meta):
-        fields = (*DocumentSerializer.Meta.fields, 'disponible', 'etiquetas', 'versiones')
+        fields: tuple[str, ...] = (*DocumentSerializer.Meta.fields, 'disponible', 'etiquetas', 'versiones')
 
     def get_disponible(self, obj: Upload) -> bool:
         return archivo_local_disponible(url_de_archivo(obj.fname))
@@ -114,7 +123,7 @@ class DocumentosConsultaSerializer(serializers.Serializer):
 class _IdsField(serializers.ListField):
     """Lista de ids enviada como claves repetidas de multipart; ignora valores en blanco."""
 
-    child = serializers.IntegerField()
+    child: ClassVar[serializers.IntegerField] = serializers.IntegerField()  # type: ignore[assignment]
 
     def get_value(self, dictionary):
         if hasattr(dictionary, 'getlist') and self.field_name in dictionary:

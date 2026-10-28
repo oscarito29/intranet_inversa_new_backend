@@ -1,10 +1,10 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.cache import cached
+from apps.core.peticiones import PeticionAutenticada
 from apps.core.permissions import Permiso, requiere
 
 from . import selectors, services
@@ -28,7 +28,7 @@ class RolesListView(APIView):
     """GET /api/v1/usuarios/roles/ — catálogo de roles (hoy: Admin, User)."""
 
     @extend_schema(summary='Listar roles', tags=[TAG], responses=RolSerializer(many=True))
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         datos = cached('usuarios-catalogos:roles', TTL_CATALOGOS, lambda: list(RolSerializer(Rol.objects.all(), many=True).data))
         return Response(datos)
 
@@ -37,7 +37,7 @@ class FinancierasListView(APIView):
     """GET /api/v1/usuarios/financieras/ — catálogo de financieras/entidades."""
 
     @extend_schema(summary='Listar financieras', tags=[TAG], responses=FinancieraSerializer(many=True))
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         datos = cached(
             'usuarios-catalogos:financieras',
             TTL_CATALOGOS,
@@ -50,7 +50,7 @@ class CorporacionesListView(APIView):
     """GET /api/v1/usuarios/corporaciones/ — catálogo de corporaciones."""
 
     @extend_schema(summary='Listar corporaciones', tags=[TAG], responses=CorporacionSerializer(many=True))
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         datos = cached(
             'usuarios-catalogos:corporaciones',
             TTL_CATALOGOS,
@@ -71,7 +71,7 @@ class DirectorioView(APIView):
         parameters=[DirectorioConsultaSerializer],
         responses=DirectorioSerializer,
     )
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         consulta = DirectorioConsultaSerializer(data=request.query_params)
         consulta.is_valid(raise_exception=True)
         filtros = consulta.validated_data
@@ -86,11 +86,11 @@ class UsuariosListCreateView(APIView):
     permission_classes = [requiere(Permiso.USUARIOS_GESTIONAR)]
 
     @extend_schema(summary='Listar usuarios (solo admin)', tags=[TAG], responses=UsuarioListSerializer(many=True))
-    def get(self, request: Request) -> Response:
+    def get(self, request: PeticionAutenticada) -> Response:
         return Response(UsuarioListSerializer(selectors.listar_usuarios(), many=True).data)
 
     @extend_schema(summary='Crear usuario', tags=[TAG], request=UsuarioWriteSerializer, responses=UsuarioListSerializer)
-    def post(self, request: Request) -> Response:
+    def post(self, request: PeticionAutenticada) -> Response:
         serializer = UsuarioWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         usuario = services.crear_usuario(request.user, serializer)
@@ -103,11 +103,11 @@ class UsuarioDetailView(APIView):
     permission_classes = [requiere(Permiso.USUARIOS_GESTIONAR)]
 
     @extend_schema(summary='Ver un usuario', tags=[TAG], responses=UsuarioListSerializer)
-    def get(self, request: Request, pk: int) -> Response:
+    def get(self, request: PeticionAutenticada, pk: int) -> Response:
         return Response(UsuarioListSerializer(selectors.obtener_usuario(pk)).data)
 
     @extend_schema(summary='Editar usuario', tags=[TAG], request=UsuarioWriteSerializer, responses=UsuarioListSerializer)
-    def patch(self, request: Request, pk: int) -> Response:
+    def patch(self, request: PeticionAutenticada, pk: int) -> Response:
         serializer = UsuarioWriteSerializer(selectors.obtener_usuario(pk), data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         usuario = services.actualizar_usuario(request.user, serializer)
@@ -126,6 +126,6 @@ class UsuarioRestablecerPasswordView(APIView):
         request=None,
         responses=PasswordTemporalSerializer,
     )
-    def post(self, request: Request, pk: int) -> Response:
+    def post(self, request: PeticionAutenticada, pk: int) -> Response:
         _, temporal = services.restablecer_password(request.user, pk)
         return Response({'password_temporal': temporal})
