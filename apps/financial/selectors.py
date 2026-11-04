@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from apps.core.permissions import Permiso, tiene_permiso
-from apps.usuarios.alcance import financieras_visibles, puede_ver_financiera
+from apps.usuarios.alcance import financieras_visibles, puede_subir_a, puede_ver_financiera
 from apps.usuarios.models import Corporacion, Financiera, Usuario
 
 from .models import Anio, Bitacora, Documento, Mes, RangoFecha
@@ -228,3 +228,95 @@ def obtener_historial(usuario: Usuario, documento_id: int) -> list[dict]:
         {'tipo': tipo, 'fecha': fecha, 'email': email, 'motivo': motivo}
         for tipo, fecha, email, motivo in sorted(eventos_con_fecha, key=lambda e: e[1])
     ]
+
+
+MAX_FALTANTES = 5
+
+
+def _mes_que_se_cierra(hoy: date) -> tuple[int, int]:
+    """Los estados de un mes se suben al mes siguiente: el que se cierra es el anterior al actual."""
+    ultimo_dia_del_anterior = hoy.replace(day=1) - timedelta(days=1)
+    return ultimo_dia_del_anterior.year, ultimo_dia_del_anterior.month
+
+
+def _ventana_de_subida(hoy: date) -> dict | None:
+    """
+    La última ventana configurada y cómo está hoy. `dias` son los que quedan para que cierre (si está abierta,
+    0 es que cierra hoy) o los que faltan para que abra (si es próxima); una ventana cerrada no tiene días.
+    """
+    rango = obtener_rango_vigente()
+    if rango is None:
+        return None
+    if hoy < rango.desde:
+        estado, dias = 'proxima', (rango.desde - hoy).days
+    elif hoy > rango.hasta:
+        estado, dias = 'cerrada', None
+    else:
+        estado, dias = 'abierta', (rango.hasta - hoy).days
+    return {'desde': rango.desde, 'hasta': rango.hasta, 'estado': estado, 'dias': dias}
+
+
+def obtener_panorama(usuario: Usuario, hoy: date | None = None) -> dict:
+    """
+    El cierre del mes anterior, para el Dashboard: cómo va cada corporación (según lo que la persona puede ver),
+    la ventana de subida y, para quien sube, las entidades suyas que todavía no cargaron nada ese mes.
+    Es la misma cuenta que Estados financieros (`obtener_periodo`), así que ambas pantallas coinciden.
+    """
+    hoy = hoy or timezone.localdate()
+    anio_numero, mes_id = _mes_que_se_cierra(hoy)
+    anio = Anio.objects.filter(anio=anio_numero).first()
+    mes = Mes.objects.filter(pk=mes_id).first()
+    # Sin el año en el catálogo no puede haber documentos: todo cuenta como sin cargar.
+    anio_id = anio.id_anio if anio else 0
+    puede_subir = tiene_permiso(usuario, Permiso.FINANCIERO_SUBIR)
+
+    corporaciones, faltan = [], []
+    for corporacion in Corporacion.objects.order_by('id'):
+        periodo = obtener_periodo(usuario, anio_id, mes_id, corporacion.pk)
+        if periodo['resumen']['total'] == 0:
+            continue
+        corporaciones.append({'id': corporacion.pk, 'nombre': corporacion.tipo_corporacion, **periodo['resumen']})
+        if puede_subir:
+            faltan += [
+                {'financiera_id': fila['financiera'].pk, 'financiera_nombre': fila['financiera'].nombre, 'corporacion_id': corporacion.pk}
+                for fila in periodo['filas']
+                if fila['estado'] == SIN_CARGAR and puede_subir_a(usuario, fila['financiera'].pk)
+            ]
+
+    return {
+        'periodo': {'anio_id': anio_id, 'anio_numero': anio_numero, 'mes_id': mes_id, 'mes_nombre': mes.mes if mes else str(mes_id)},
+        'ventana': _ventana_de_subida(hoy),
+        'corporaciones': corporaciones,
+        'faltan': {'total': len(faltan), 'items': faltan[:MAX_FALTANTES]},
+    }
+
+
+def documentos_vigentes_del_periodo(usuario: Usuario, anio: int, mes_id: int, corporacion_id: str) -> list[dict]:
+    """El documento más reciente de cada financiera que tiene uno aprobado o pendiente (los «vigentes» de la pantalla)."""
+    return [
+        {'financiera': fila['financiera'], 'estado': fila['estado'], 'documento': fila['documento']}
+        for fila in obtener_periodo(usuario, anio, mes_id, corporacion_id)['filas']
+        if fila['documento'] is not None and fila['estado'] in ('pendiente', 'aprobado')
+    ]
+
+
+MIN_CARACTERES_DE_BUSQUEDA = 2
+MAX_RESULTADOS_DE_BUSQUEDA = 8
+
+
+def buscar_documentos(usuario: Usuario, texto: str) -> list[Documento]:
+    """
+    Estados financieros por nombre de archivo o de financiera, los más recientes primero y solo de las entidades que
+    la persona puede ver. Con menos de dos letras no busca. Los documentos sin financiera, año o mes (hay en la base
+    heredada) no se ofrecen porque no hay a dónde llevar a quien los elija.
+    """
+    texto = texto.strip()
+    if len(texto) < MIN_CARACTERES_DE_BUSQUEDA:
+        return []
+    coincidencias = _documentos_del_alcance(usuario).filter(
+        Q(nombre_archivo__icontains=texto) | Q(financiera__nombre__icontains=texto),
+        financiera__isnull=False,
+        anio__isnull=False,
+        mes__isnull=False,
+    )
+    return list(coincidencias.select_related('financiera', 'anio', 'mes').order_by('-fecha', '-id')[:MAX_RESULTADOS_DE_BUSQUEDA])

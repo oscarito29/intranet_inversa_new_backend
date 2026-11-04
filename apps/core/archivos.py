@@ -78,3 +78,25 @@ def archivo_local_disponible(url: str | None) -> bool:
     if not nombre or '..' in nombre.split('/'):
         return False
     return default_storage.exists(nombre)
+
+
+def _clave_bajo_media(ruta: str | None) -> str | None:
+    if not ruta or ruta.startswith(('http://', 'https://')):
+        return None
+    camino = unquote(urlparse(ruta).path)
+    if not camino.startswith(settings.MEDIA_URL):
+        return None
+    nombre = camino[len(settings.MEDIA_URL):]
+    return nombre if nombre and '..' not in nombre.split('/') else None
+
+
+def leer_archivo(valor: str | None) -> bytes | None:
+    """
+    El contenido de un archivo guardado en la base, o `None` si el servidor no puede leerlo: una URL absoluta (el
+    bucket del sistema anterior, que no se consulta desde aquí) o un archivo que ya no está en el storage.
+    """
+    clave = _clave_en_storage(valor) or _clave_bajo_media(valor)
+    if clave is None or not default_storage.exists(clave):
+        return None
+    with default_storage.open(clave, 'rb') as archivo:
+        return archivo.read()

@@ -62,6 +62,14 @@ class NotificacionesTests(ApiTestCase):
         )
         self.assertIsNotNone(item['documento_id'])
 
+    def test_cada_aviso_trae_el_archivo_y_quien_lo_subio_para_revisarlo_sin_salir_de_la_pantalla(self):
+        _documento()
+
+        item = self._pedir(self.cliente_admin).data['items'][0]
+
+        self.assertTrue(item['ruta_archivo'].endswith('/media/documentos/estado.pdf'))
+        self.assertEqual(item['email_usuario_sube'], 'sube@inversa.hn')
+
     def test_el_usuario_ve_solo_los_rechazos_y_revocaciones_de_su_financiera(self):
         _documento(estado=Documento.RECHAZADO, fecha_rechaza=timezone.now(), motivo_rechazo='Ilegible')
         _documento(estado=Documento.REVOCADO, fecha_desaprueba=timezone.now(), motivo_desaprueba='Cifras erradas')

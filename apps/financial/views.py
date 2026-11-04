@@ -1,4 +1,4 @@
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
@@ -15,12 +15,14 @@ from apps.usuarios.alcance import entidades_de
 from . import selectors, services
 from .serializers import (
     AnioSerializer,
+    BusquedaDocumentoSerializer,
     CorporacionSerializer,
     DocumentoSerializer,
     DocumentosQuerySerializer,
     HistorialEventoSerializer,
     MesSerializer,
     NotificacionesSerializer,
+    PanoramaSerializer,
     PeriodoFilaSerializer,
     PeriodoQuerySerializer,
     RangoFechasRequestSerializer,
@@ -88,6 +90,31 @@ class NotificacionesView(APIView):
         return Response(NotificacionesSerializer(selectors.obtener_notificaciones(request.user)).data)
 
 
+class PanoramaView(APIView):
+    @extend_schema(
+        summary='Cierre del mes anterior para el Dashboard',
+        description='Cómo va cada corporación en el mes que se cierra (según lo que la persona puede ver), la ventana de subida '
+        'y, para quien sube, las entidades suyas que aún no cargaron nada. `faltan.total` las cuenta todas; `items` trae las primeras 5.',
+        tags=[TAG],
+        responses=PanoramaSerializer,
+    )
+    def get(self, request: PeticionAutenticada) -> Response:
+        return Response(PanoramaSerializer(selectors.obtener_panorama(request.user)).data)
+
+
+class BuscarDocumentosView(APIView):
+    @extend_schema(
+        summary='Buscar estados financieros por nombre de archivo o de financiera',
+        description='Solo de las entidades que la persona puede ver. Con menos de 2 letras devuelve una lista vacía; trae a lo más 8.',
+        tags=[TAG],
+        parameters=[OpenApiParameter('q', str, required=True)],
+        responses=BusquedaDocumentoSerializer(many=True),
+    )
+    def get(self, request: PeticionAutenticada) -> Response:
+        documentos = selectors.buscar_documentos(request.user, request.query_params.get('q', ''))
+        return Response(BusquedaDocumentoSerializer(documentos, many=True).data)
+
+
 class PeriodoView(APIView):
     @extend_schema(
         summary='Estado de cada financiera de una corporación en un periodo',
@@ -131,6 +158,31 @@ class ExportarPeriodoView(APIView):
         services.registrar_exportacion_del_periodo(request.user, anio_numero, datos['mes'], datos['corporacion'])
         nombre = f"estados-financieros-{anio_numero}-{datos['mes']:02d}-corporacion-{datos['corporacion']}.xlsx"
         return respuesta_xlsx(nombre, generar_xlsx('Periodo', selectors.ENCABEZADOS_DE_EXPORTACION, filas))
+
+
+class ExportarZipView(APIView):
+    permission_classes = [requiere(Permiso.FINANCIERO_EXPORTAR)]
+
+    @extend_schema(
+        summary='Descargar en un ZIP los documentos vigentes de un periodo',
+        description='El documento aprobado o pendiente de cada financiera que la persona puede ver. Lo que el servidor no puede leer '
+        '(el bucket del sistema anterior) no entra y se anota en un `LEEME.txt`. Requiere el permiso de exportar.',
+        tags=[TAG],
+        parameters=[
+            OpenApiParameter('anio', int, required=True),
+            OpenApiParameter('mes', int, required=True),
+            OpenApiParameter('corporacion', str, required=True),
+        ],
+        responses={(200, 'application/zip'): OpenApiTypes.BINARY},
+    )
+    def get(self, request: PeticionAutenticada) -> FileResponse:
+        parametros = PeriodoQuerySerializer(data=request.query_params)
+        parametros.is_valid(raise_exception=True)
+        datos = parametros.validated_data
+        archivo = services.armar_zip_del_periodo(request.user, datos['anio'], datos['mes'], datos['corporacion'])
+        anio_numero = selectors.obtener_numero_de_anio(datos['anio'])
+        nombre = f"documentos-{anio_numero}-{datos['mes']:02d}-corporacion-{datos['corporacion']}.zip"
+        return FileResponse(archivo, as_attachment=True, filename=nombre, content_type='application/zip')
 
 
 class DocumentosView(APIView):

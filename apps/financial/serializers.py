@@ -4,7 +4,7 @@ from apps.core.campos import ArchivoUrlField
 from apps.usuarios.models import Corporacion, Financiera
 
 from .models import Anio, Documento, Mes, RangoFecha
-from .selectors import motivo_de_fila
+from .selectors import estado_de, motivo_de_fila
 
 
 class AnioSerializer(serializers.Serializer):
@@ -168,6 +168,8 @@ class NotificacionSerializer(serializers.Serializer):
     documento_id = serializers.IntegerField(source='documento.id')
     tipo = serializers.ChoiceField(choices=['pendiente', 'rechazado', 'revocado'])
     nombre_archivo = serializers.CharField(source='documento.nombre_archivo', allow_null=True)
+    ruta_archivo = ArchivoUrlField(source='documento.ruta_archivo')
+    email_usuario_sube = serializers.CharField(source='documento.email_usuario_sube', allow_null=True)
     financiera_id = serializers.CharField(source='documento.financiera_id')
     financiera_nombre = serializers.CharField(source='documento.financiera.nombre')
     anio = serializers.IntegerField(source='documento.anio_id')
@@ -182,3 +184,63 @@ class NotificacionSerializer(serializers.Serializer):
 class NotificacionesSerializer(serializers.Serializer):
     total = serializers.IntegerField()
     items = NotificacionSerializer(many=True)
+
+
+class PanoramaPeriodoSerializer(serializers.Serializer):
+    anio_id = serializers.IntegerField()
+    anio_numero = serializers.IntegerField()
+    mes_id = serializers.IntegerField()
+    mes_nombre = serializers.CharField()
+
+
+class PanoramaVentanaSerializer(serializers.Serializer):
+    desde = serializers.DateField()
+    hasta = serializers.DateField()
+    estado = serializers.ChoiceField(choices=['abierta', 'proxima', 'cerrada'])
+    dias = serializers.IntegerField(allow_null=True)
+
+
+class PanoramaCorporacionSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    nombre = serializers.CharField()
+    total = serializers.IntegerField()
+    cargadas = serializers.IntegerField()
+    faltan = serializers.IntegerField()
+    por_estado = serializers.DictField(child=serializers.IntegerField())
+
+
+class PanoramaFaltaSerializer(serializers.Serializer):
+    financiera_id = serializers.CharField()
+    financiera_nombre = serializers.CharField()
+    corporacion_id = serializers.CharField()
+
+
+class PanoramaFaltanSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    items = PanoramaFaltaSerializer(many=True)
+
+
+class PanoramaSerializer(serializers.Serializer):
+    periodo = PanoramaPeriodoSerializer()
+    ventana = PanoramaVentanaSerializer(allow_null=True)
+    corporaciones = PanoramaCorporacionSerializer(many=True)
+    faltan = PanoramaFaltanSerializer()
+
+
+class BusquedaDocumentoSerializer(serializers.Serializer):
+    """Un estado financiero hallado por la búsqueda: lo necesario para mostrarlo y para abrir Estados financieros en él."""
+
+    documento_id = serializers.IntegerField(source='id')
+    nombre_archivo = serializers.CharField(allow_null=True)
+    estado = serializers.SerializerMethodField()
+    financiera_id = serializers.CharField()
+    financiera_nombre = serializers.CharField(source='financiera.nombre')
+    anio = serializers.IntegerField(source='anio_id')
+    anio_numero = serializers.IntegerField(source='anio.anio')
+    mes_id = serializers.IntegerField()
+    mes_nombre = serializers.CharField(source='mes.mes')
+    corporacion_id = serializers.CharField()
+    fecha = serializers.DateTimeField(allow_null=True)
+
+    def get_estado(self, documento: Documento) -> str:
+        return estado_de(documento)

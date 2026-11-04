@@ -1,7 +1,13 @@
+import re
+import tempfile
+import zipfile
+from typing import IO
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.core.archivos import leer_archivo
 from apps.core.bitacora import registrar_bitacora
 from apps.core.cache import invalidar
 from apps.usuarios.alcance import puede_subir_a
@@ -138,3 +144,56 @@ def guardar_rango_fechas(usuario: Usuario, desde, hasta) -> RangoFecha:
     registrar_bitacora(usuario.email, 'Edicion', 'Modifica la fecha de Subida de Documentos')
     invalidar('financiero')
     return rango
+
+
+LIMITE_DEL_ZIP_BYTES = 200 * 1024 * 1024
+# Hasta aquí el ZIP se arma en memoria; si pesa más, el archivo temporal pasa a disco.
+MEMORIA_DEL_ZIP_BYTES = 16 * 1024 * 1024
+_CARACTERES_NO_VALIDOS_EN_NOMBRE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
+
+
+def _nombre_en_zip(financiera: str, estado: str, archivo: str | None) -> str:
+    nombre = _CARACTERES_NO_VALIDOS_EN_NOMBRE.sub('_', f'{financiera} - {estado} - {archivo or "documento"}')
+    return nombre[:180]
+
+
+def armar_zip_del_periodo(usuario: Usuario, anio: int, mes_id: int, corporacion_id: str) -> IO[bytes]:
+    """
+    Un ZIP con el documento vigente (aprobado o pendiente) de cada financiera que la persona puede ver. Lo que el
+    servidor no puede leer (el bucket del sistema anterior) no entra, y un `LEEME.txt` dice cuáles faltan. Si el
+    periodo pesa más de 200 MB no se arma: se descarga desde la pantalla de uno en uno.
+    """
+    filas = selectors.documentos_vigentes_del_periodo(usuario, anio, mes_id, corporacion_id)
+    if not filas:
+        raise ValidationError('No hay documentos vigentes en este periodo para descargar.')
+
+    anio_numero = selectors.obtener_numero_de_anio(anio)
+    salida = tempfile.SpooledTemporaryFile(max_size=MEMORIA_DEL_ZIP_BYTES)
+    incluidos, sin_leer, total = 0, [], 0
+    try:
+        with zipfile.ZipFile(salida, 'w', zipfile.ZIP_DEFLATED) as comprimido:
+            for fila in filas:
+                documento, financiera = fila['documento'], fila['financiera']
+                contenido = leer_archivo(documento.ruta_archivo)
+                if contenido is None:
+                    sin_leer.append(f'{financiera.nombre}: {documento.nombre_archivo}')
+                    continue
+                total += len(contenido)
+                if total > LIMITE_DEL_ZIP_BYTES:
+                    raise ValidationError('El periodo pesa más de 200 MB para un solo ZIP. Descarga los documentos de uno en uno desde la pantalla.')
+                comprimido.writestr(_nombre_en_zip(financiera.nombre, fila['estado'], documento.nombre_archivo), contenido)
+                incluidos += 1
+            if sin_leer:
+                aviso = 'Estos documentos no se pudieron incluir; ábrelos desde Estados financieros:\n' + '\n'.join(f'- {linea}' for linea in sin_leer)
+                comprimido.writestr('LEEME.txt', aviso)
+    except BaseException:
+        salida.close()
+        raise
+
+    if incluidos == 0:
+        salida.close()
+        raise ValidationError('Los documentos de este periodo no se pueden juntar en un ZIP desde el servidor. Ábrelos desde la pantalla.')
+
+    registrar_bitacora(usuario.email, 'Exportacion', f'Descarga en ZIP el periodo {mes_id:02d}/{anio_numero} de la corporacion {corporacion_id}')
+    salida.seek(0)
+    return salida
