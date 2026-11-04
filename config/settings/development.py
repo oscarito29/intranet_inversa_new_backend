@@ -1,6 +1,8 @@
 from .base import *  # noqa: F403
 
 DEBUG = True
+API_DOCS_ENABLED = True
+ADMIN_ENABLED = True
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
@@ -24,6 +26,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:5174',
 ]
 CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ['Content-Disposition']  # nombre del archivo en las exportaciones
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 

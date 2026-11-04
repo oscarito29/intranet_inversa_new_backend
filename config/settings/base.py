@@ -5,6 +5,8 @@ from pathlib import Path
 
 import environ
 
+from .observabilidad import configuracion_de_logs
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env()
@@ -15,6 +17,7 @@ SECRET_KEY = env('DJANGO_SECRET_KEY', default='django-insecure-change-me-in-env'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOCAL_APPS = [
+    'apps.core',
     'apps.usuarios',
     'apps.financial',
     'apps.documentos',
@@ -30,6 +33,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'drf_spectacular',
     *LOCAL_APPS,
@@ -45,6 +49,10 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# La vista previa de un PDF lo muestra dentro de la página (iframe del mismo origen, vía el proxy del frontend).
+# Con el valor por defecto (DENY) el navegador lo bloquearía; SAMEORIGIN sigue impidiendo que otros sitios lo enmarquen.
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 ROOT_URLCONF = 'config.urls'
 
@@ -76,11 +84,14 @@ PASSWORD_HASHERS = [
     'apps.usuarios.hashers.LegacyUnsaltedMD5PasswordHasher',
 ]
 
+# Política de contraseñas: se aplica al cambiarla y cuando un administrador la escribe al crear o editar a alguien
+# (ver `validar_politica_de_password` en apps/usuarios/services.py). La temporal que genera el sistema no pasa por aquí.
 AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator', 'OPTIONS': {'user_attributes': ('email', 'name', 'full_name')}},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 10}},
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+    {'NAME': 'apps.usuarios.validators.DistintaDeLaActualValidator'},
 ]
 
 LANGUAGE_CODE = 'es'
@@ -110,15 +121,22 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'EXCEPTION_HANDLER': 'config.exception_handler.custom_exception_handler',
+    # Detrás de un proxy o balanceador hay que decir cuántos hay, para que el límite use la dirección real del
+    # cliente y no la del proxy (que bloquearía a todos a la vez). Se fija en producción con DRF_NUM_PROXIES.
+    'NUM_PROXIES': env.int('DRF_NUM_PROXIES', default=0) or None,
+    'DEFAULT_THROTTLE_RATES': {
+        'login': env('LOGIN_THROTTLE_RATE', default='20/min'),
+        'password': env('PASSWORD_THROTTLE_RATE', default='10/min'),
+    },
 }
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    # Sin 'rest_framework_simplejwt.token_blacklist' instalado, la rotación
-    # emitiría refresh tokens nuevos sin invalidar los anteriores. Se activará
-    # junto con el blacklist app en una fase posterior.
-    'ROTATE_REFRESH_TOKENS': False,
+    # Cada refresh emite un token nuevo y deja el anterior en la lista negra; el logout también.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
@@ -137,6 +155,22 @@ SPECTACULAR_SETTINGS = {
 
 API_BASE_PATH = 'api/v1'
 
+# La documentación de la API (Swagger) y el sitio de administración de Django describen toda la superficie del sistema:
+# solo se publican en desarrollo. Se pueden encender en otro entorno con la variable de entorno, a sabiendas.
+API_DOCS_ENABLED = False
+ADMIN_ENABLED = False
+
 REFRESH_TOKEN_COOKIE_NAME = 'refresh_token'
 REFRESH_TOKEN_COOKIE_SECURE = True
 REFRESH_TOKEN_COOKIE_SAMESITE = 'Lax'
+
+# Logs a la salida estándar (ver observabilidad.py). LOG_LEVEL=DEBUG para investigar; nunca registra consultas SQL.
+LOGGING = configuracion_de_logs(env('LOG_LEVEL', default='INFO'))
+
+# Caché de datos globales (ver apps/core/cache.py). Producción usa Redis.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'intranet-inversa',
+    }
+}

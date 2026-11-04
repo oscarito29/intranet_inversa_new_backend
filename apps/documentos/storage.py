@@ -2,8 +2,10 @@ import re
 import uuid
 
 from django.core.exceptions import ValidationError
-from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
+
+from apps.core.archivos import guardar_archivo
+from apps.core.subidas import validar_contenido
 
 EXTENSIONES_PERMITIDAS = {'.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.rar'}
 TAMANIO_MAXIMO_BYTES = 15 * 1024 * 1024
@@ -18,8 +20,9 @@ def validar_archivo(archivo: UploadedFile) -> None:
     extension = ('.' + nombre.rsplit('.', 1)[-1].lower()) if '.' in nombre else ''
     if extension not in EXTENSIONES_PERMITIDAS:
         raise ValidationError(f'Tipo de archivo no permitido ({extension or "sin extensión"}).')
-    if archivo.size > TAMANIO_MAXIMO_BYTES:
+    if (archivo.size or 0) > TAMANIO_MAXIMO_BYTES:
         raise ValidationError('El archivo supera el tamaño máximo permitido (15MB).')
+    validar_contenido(archivo)
 
 
 def tamanio_legible(bytes_size: int) -> str:
@@ -38,7 +41,6 @@ def guardar_documento_institucional(archivo: UploadedFile, category_id: int) -> 
     S3Boto3Storage vía DEFAULT_FILE_STORAGE, sin tocar este código.
     """
     validar_archivo(archivo)
-    nombre_sanitizado = _sanitizar_nombre(archivo.name)
+    nombre_sanitizado = _sanitizar_nombre(archivo.name or '')
     key = f'documentos-institucionales/{category_id}/{uuid.uuid4().hex}_{nombre_sanitizado}'
-    ruta_guardada = default_storage.save(key, archivo)
-    return default_storage.url(ruta_guardada)
+    return guardar_archivo(key, archivo)

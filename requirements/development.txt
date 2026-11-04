@@ -1,1 +1,9 @@
 -r base.txt
+
+# Tipos para el editor y para `pyrefly check`: sin ellos Django, DRF y openpyxl se ven como "desconocidos" y todo marca error.
+pyrefly==1.4.0
+django-stubs==6.1.2
+django-stubs-ext==6.1.2
+djangorestframework-stubs==3.18.1
+types-openpyxl==3.1.5.20261017
+types-PyMySQL==1.2.0.20260923

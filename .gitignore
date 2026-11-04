@@ -24,3 +24,5 @@ staticfiles/
 .idea/
 .DS_Store
 Thumbs.db
+media_test*/
+*.md

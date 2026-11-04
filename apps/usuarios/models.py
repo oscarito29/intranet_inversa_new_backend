@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.db import models
 
@@ -45,9 +47,9 @@ class Rol(models.Model):
         return self.name
 
 
-class UsuarioManager(BaseUserManager):
-    def get_by_natural_key(self, email: str) -> 'Usuario':
-        return self.get(**{self.model.USERNAME_FIELD: self.normalize_email(email)})
+class UsuarioManager(BaseUserManager['Usuario']):
+    def get_by_natural_key(self, username: str | None) -> 'Usuario':
+        return self.get(**{self.model.USERNAME_FIELD: self.normalize_email(username)})
 
 
 class Usuario(AbstractBaseUser):
@@ -64,7 +66,7 @@ class Usuario(AbstractBaseUser):
     # tiene columna `last_login`: se elimina el campo heredado por completo
     # (patrón soportado por Django: asignar None a un campo heredado de una
     # base abstracta lo remueve del modelo concreto).
-    last_login = None
+    last_login = None  # type: ignore[assignment]
     full_name = models.CharField(max_length=160)
     phone_number = models.CharField(max_length=15)
     address = models.CharField(max_length=255)
@@ -82,7 +84,7 @@ class Usuario(AbstractBaseUser):
     objects = UsuarioManager()
 
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS: list[str] = []
+    REQUIRED_FIELDS: ClassVar[list[str]] = []
 
     class Meta:
         managed = False
@@ -92,7 +94,7 @@ class Usuario(AbstractBaseUser):
         return self.email
 
     @property
-    def is_active(self) -> bool:
+    def is_active(self) -> bool:  # type: ignore[override]
         return self.estado == 'A'
 
     @property
@@ -104,3 +106,23 @@ class Usuario(AbstractBaseUser):
 
     def has_module_perms(self, app_label: str) -> bool:
         return self.rol_id == 1
+
+
+class UsuarioEntidad(models.Model):
+    """
+    Tabla NUEVA `usuario_entidad` (la crea una migración de Django; el sistema PHP no la conoce): las entidades
+    ADICIONALES de una persona. Su entidad principal sigue en `user.userFinancieraId`.
+
+    Sin restricciones de clave foránea en la base (`db_constraint=False`): los tipos y la colación de las tablas
+    heredadas no siempre coinciden y MySQL se niega a crear la restricción. La integridad la cuida el servicio.
+    """
+
+    usuario = models.ForeignKey(Usuario, db_column='usuario_id', on_delete=models.CASCADE, related_name='entidades_adicionales', db_constraint=False)
+    financiera = models.ForeignKey(Financiera, db_column='financiera_id', on_delete=models.DO_NOTHING, related_name='+', db_constraint=False)
+
+    class Meta:
+        db_table = 'usuario_entidad'
+        constraints = [models.UniqueConstraint(fields=['usuario', 'financiera'], name='usuario_entidad_unica')]
+
+    def __str__(self) -> str:
+        return f'{self.usuario_id} - {self.financiera_id}'

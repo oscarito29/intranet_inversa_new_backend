@@ -42,12 +42,16 @@ class EtiquetaRol(models.Model):
 class Category(models.Model):
     """Tabla `category`: clasifica los documentos institucionales (`upload.area`)."""
 
+    # Una categoría inactiva conserva sus documentos pero no admite subir otros nuevos.
+    ACTIVA = 'Activo'
+    INACTIVA = 'Inactivo'
+
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=35, unique=True)
     description = models.CharField(max_length=80)
     created_at = models.DateTimeField()
     modified_at = models.DateTimeField(null=True, blank=True)
-    estado = models.CharField(max_length=50, default='Activo')
+    estado = models.CharField(max_length=50, default=ACTIVA)
 
     class Meta:
         managed = False
@@ -59,6 +63,11 @@ class Category(models.Model):
 
 class Upload(models.Model):
     """Tabla `upload`: documentos institucionales (no confundir con `product`, remanente roto del legacy)."""
+
+    # Un documento está vigente mientras no haya sido reemplazado. Los datos legados traen
+    # además estados sueltos (p. ej. 'E') que también cuentan como vigentes.
+    ACTIVO = 'Activo'
+    REEMPLAZADO = 'Reemplazado'
 
     id = models.AutoField(primary_key=True)
     reemplaza_a = models.ForeignKey('self', db_column='reemplaza_a', null=True, blank=True, on_delete=models.DO_NOTHING)

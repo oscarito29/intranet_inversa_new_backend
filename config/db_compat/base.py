@@ -18,6 +18,10 @@ class DatabaseFeatures(MySQLDatabaseFeatures):
     # MariaDB 10.1 no soporta `INSERT ... RETURNING` (eso llegó en 10.5).
     can_return_columns_from_insert = False
     can_return_rows_from_bulk_insert = False
+    # MariaDB 10.1 tampoco tiene information_schema.check_constraints (10.2+), que Django consulta al alterar columnas.
+    can_introspect_check_constraints = False
+    supports_column_check_constraints = False
+    supports_table_check_constraints = False
 
 
 class DatabaseWrapper(MySQLDatabaseWrapper):

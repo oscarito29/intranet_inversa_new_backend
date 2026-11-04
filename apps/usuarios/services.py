@@ -1,0 +1,199 @@
+import re
+import uuid
+
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import UploadedFile
+from django.db import transaction
+from django.utils import timezone
+
+from django.utils.crypto import get_random_string
+
+from apps.core.archivos import borrar_archivo, guardar_archivo
+from apps.core.bitacora import registrar_bitacora
+from apps.core.cache import invalidar
+from apps.core.permissions import ROL_ADMIN, Permiso, roles_con, tiene_permiso
+from apps.core.subidas import validar_contenido
+
+from .models import Rol, Usuario, UsuarioEntidad
+from .selectors import descripcion_cambio_password, obtener_usuario
+from .sesiones import cerrar_sesiones
+
+EXTENSIONES_FOTO = {'.jpg', '.jpeg', '.png', '.webp'}
+TAMANIO_MAXIMO_FOTO_BYTES = 2 * 1024 * 1024
+ESTADO_ACTIVO = 'A'
+# Con menos personas que puedan aprobar, quien sube algo no tendría quién se lo apruebe (nadie aprueba lo que subió).
+MINIMO_DE_APROBADORES = 2
+MINIMO_DE_ADMINISTRADORES = 1
+# Sin caracteres que se confunden al dictarlos (0/O, 1/l/I): la contraseña temporal se entrega a una persona.
+CARACTERES_PASSWORD_TEMPORAL = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+LARGO_PASSWORD_TEMPORAL = 12
+
+
+def validar_politica_de_password(password: str, usuario: Usuario, campo: str = 'password') -> None:
+    """Aplica `AUTH_PASSWORD_VALIDATORS`; el error queda en el campo que escribió la persona, con los motivos en español."""
+    try:
+        validate_password(password, usuario)
+    except ValidationError as exc:
+        raise ValidationError({campo: list(exc.messages)}) from exc
+
+
+@transaction.atomic
+def actualizar_perfil(usuario: Usuario, name: str, phone_number: str, email: str | None) -> Usuario:
+    """El correo es la identidad de la persona (con él inicia sesión): solo quien administra usuarios lo cambia (igual que el legado)."""
+    cambia_email = email is not None and email != usuario.email
+    if cambia_email:
+        if not tiene_permiso(usuario, Permiso.USUARIOS_GESTIONAR):
+            raise ValidationError({'email': 'Tu correo solo lo puede cambiar un administrador.'})
+        if Usuario.objects.filter(email=email).exclude(pk=usuario.pk).exists():
+            raise ValidationError({'email': 'Ya existe un usuario con ese correo.'})
+        usuario.email = email
+
+    usuario.name = name
+    usuario.full_name = name
+    usuario.phone_number = phone_number
+    usuario.updated_at = timezone.now()
+    usuario.save(update_fields=['name', 'full_name', 'phone_number', 'email', 'updated_at'])
+    invalidar('cumpleanos')
+    return usuario
+
+
+@transaction.atomic
+def cambiar_password(usuario: Usuario, actual: str, nuevo: str) -> None:
+    if not usuario.check_password(actual):
+        raise ValidationError({'actual': 'La contraseña actual es incorrecta.'})
+    validar_politica_de_password(nuevo, usuario, 'nuevo')
+
+    usuario.set_password(nuevo)
+    usuario.updated_at = timezone.now()
+    usuario.save(update_fields=['password', 'updated_at'])
+    registrar_bitacora(usuario.email, 'Edicion', descripcion_cambio_password(usuario.email))
+
+
+@transaction.atomic
+def guardar_foto_perfil(usuario: Usuario, archivo: UploadedFile) -> Usuario:
+    nombre = archivo.name or ''
+    extension = ('.' + nombre.rsplit('.', 1)[-1].lower()) if '.' in nombre else ''
+    if extension not in EXTENSIONES_FOTO:
+        raise ValidationError({'picture': f'Tipo de imagen no permitido ({extension or "sin extensión"}).'})
+    if (archivo.size or 0) > TAMANIO_MAXIMO_FOTO_BYTES:
+        raise ValidationError({'picture': 'La imagen supera el tamaño máximo permitido (2MB).'})
+    try:
+        validar_contenido(archivo)
+    except ValidationError as exc:
+        raise ValidationError({'picture': list(exc.messages)}) from exc
+
+    foto_anterior = usuario.picture
+    nombre_seguro = re.sub(r'[^A-Za-z0-9._-]+', '_', nombre)
+    valor_guardado = guardar_archivo(f'perfiles/{usuario.id}_{uuid.uuid4().hex[:8]}_{nombre_seguro}', archivo)
+
+    usuario.picture = valor_guardado
+    usuario.updated_at = timezone.now()
+    usuario.save(update_fields=['picture', 'updated_at'])
+    borrar_archivo(foto_anterior)
+    return usuario
+
+
+@transaction.atomic
+def crear_usuario(actor: Usuario, serializer) -> Usuario:
+    datos = serializer.validated_data
+    if datos.get('password'):
+        validar_politica_de_password(datos['password'], Usuario(email=datos.get('email', ''), name=datos.get('name', '')))
+    usuario = serializer.save()
+    registrar_bitacora(actor.email, 'Creacion', f'Crea el usuario {usuario.email}')
+    if datos.get('entidades_adicionales'):
+        sincronizar_entidades_adicionales(actor, usuario, datos['entidades_adicionales'])
+    invalidar('cumpleanos')
+    return usuario
+
+
+@transaction.atomic
+def actualizar_usuario(actor: Usuario, serializer) -> Usuario:
+    """Un administrador no puede quedarse sin acceso: no desactiva su propia cuenta ni se quita el rol de administrador."""
+    usuario = serializer.instance
+    datos = serializer.validated_data
+    if usuario.pk == actor.pk:
+        if datos.get('estado', usuario.estado) != ESTADO_ACTIVO:
+            raise ValidationError({'estado': 'No puedes desactivar tu propia cuenta.'})
+        if usuario.rol_id == ROL_ADMIN and datos.get('rol_id', usuario.rol_id) != ROL_ADMIN:
+            raise ValidationError({'rol_id': 'No puedes quitarte tu propio rol de administrador.'})
+
+    if datos.get('password'):
+        validar_politica_de_password(datos['password'], usuario)
+    rol_anterior, financiera_anterior, estado_anterior = usuario.rol_id, usuario.financiera_id, usuario.estado
+    nombre_rol_anterior = usuario.rol.name
+    aprobadores_antes = _contar_activos_con(Permiso.FINANCIERO_APROBAR)
+    administradores_antes = _contar_activos_con(Permiso.USUARIOS_GESTIONAR)
+
+    usuario = serializer.save()
+    cambio_entidades = 'entidades_adicionales' in datos and sincronizar_entidades_adicionales(actor, usuario, datos['entidades_adicionales'])
+    _exigir_continuidad(aprobadores_antes, administradores_antes)
+
+    registrar_bitacora(actor.email, 'Edicion', f'Modifica el usuario {usuario.email}')
+    _registrar_cambios_sensibles(actor, usuario, rol_anterior, nombre_rol_anterior, financiera_anterior, estado_anterior)
+    if cambio_entidades or (usuario.rol_id, usuario.financiera_id, usuario.estado) != (rol_anterior, financiera_anterior, estado_anterior):
+        # Su pantalla (menú, botones, entidades) se renueva al volver a entrar; el servidor ya aplica lo nuevo.
+        cerrar_sesiones(usuario)
+    invalidar('cumpleanos')
+    # Se vuelve a leer: la instancia traía las entidades adicionales de ANTES de guardar (`prefetch_related` de la vista).
+    return obtener_usuario(usuario.pk)
+
+
+def _contar_activos_con(permiso: Permiso) -> int:
+    return Usuario.objects.filter(estado=ESTADO_ACTIVO, deleted_at__isnull=True, rol_id__in=roles_con(permiso)).count()
+
+
+def _exigir_continuidad(aprobadores_antes: int, administradores_antes: int) -> None:
+    """
+    Un cambio no puede dejar al sistema sin quien lo administre ni sin quien apruebe. Solo frena lo que EMPEORA la
+    situación: si ya había menos del mínimo, lo que no toca a los aprobadores o administradores no se bloquea.
+    """
+    aprobadores = _contar_activos_con(Permiso.FINANCIERO_APROBAR)
+    if aprobadores < MINIMO_DE_APROBADORES and aprobadores < aprobadores_antes:
+        raise ValidationError(f'Debe haber al menos {MINIMO_DE_APROBADORES} personas activas que puedan aprobar estados financieros.')
+    administradores = _contar_activos_con(Permiso.USUARIOS_GESTIONAR)
+    if administradores < MINIMO_DE_ADMINISTRADORES and administradores < administradores_antes:
+        raise ValidationError('Debe quedar al menos un administrador activo.')
+
+
+def sincronizar_entidades_adicionales(actor: Usuario, usuario: Usuario, entidades: list[str]) -> bool:
+    """Deja exactamente `entidades` como las adicionales de la persona (la principal no cuenta). Devuelve si algo cambió."""
+    deseadas = set(entidades) - {usuario.financiera_id}
+    actuales = set(UsuarioEntidad.objects.filter(usuario_id=usuario.pk).values_list('financiera_id', flat=True))
+    if deseadas == actuales:
+        return False
+    UsuarioEntidad.objects.filter(usuario_id=usuario.pk, financiera_id__in=actuales - deseadas).delete()
+    UsuarioEntidad.objects.bulk_create([UsuarioEntidad(usuario_id=usuario.pk, financiera_id=entidad) for entidad in sorted(deseadas - actuales)])
+    antes, despues = ', '.join(sorted(actuales)) or 'ninguna', ', '.join(sorted(deseadas)) or 'ninguna'
+    registrar_bitacora(actor.email, 'Edicion', f'Cambio de entidades adicionales de {usuario.email}: {antes} a {despues}')
+    return True
+
+
+def _registrar_cambios_sensibles(actor: Usuario, usuario: Usuario, rol_anterior, nombre_rol_anterior, financiera_anterior, estado_anterior) -> None:
+    """El rol, la entidad y el estado de una persona definen qué puede ver y hacer: cada cambio queda con su propio renglón."""
+    if usuario.rol_id != rol_anterior:
+        nuevo = Rol.objects.get(pk=usuario.rol_id).name
+        registrar_bitacora(actor.email, 'Edicion', f'Cambio de rol de {usuario.email}: {nombre_rol_anterior} a {nuevo}')
+    if usuario.financiera_id != financiera_anterior:
+        registrar_bitacora(actor.email, 'Edicion', f'Cambio de entidad de {usuario.email}: {financiera_anterior} a {usuario.financiera_id}')
+    if usuario.estado != estado_anterior:
+        accion = 'Activa' if usuario.estado == ESTADO_ACTIVO else 'Desactiva'
+        registrar_bitacora(actor.email, 'Edicion', f'{accion} al usuario {usuario.email}')
+
+
+@transaction.atomic
+def restablecer_password(actor: Usuario, usuario_id: int) -> tuple[Usuario, str]:
+    """
+    Asigna una contraseña temporal aleatoria y la devuelve UNA vez para que el administrador se la entregue al usuario
+    (todavía no hay envío por correo). Solo queda el hash en la base y, en la bitácora, que se restableció, no la clave.
+    """
+    usuario = Usuario.objects.select_for_update().get(pk=usuario_id)
+    if usuario.pk == actor.pk:
+        raise ValidationError('Para cambiar tu propia contraseña usa «Mi perfil».')
+
+    temporal = get_random_string(LARGO_PASSWORD_TEMPORAL, CARACTERES_PASSWORD_TEMPORAL)
+    usuario.set_password(temporal)
+    usuario.updated_at = timezone.now()
+    usuario.save(update_fields=['password', 'updated_at'])
+    registrar_bitacora(actor.email, 'Edicion', descripcion_cambio_password(usuario.email))
+    return usuario, temporal

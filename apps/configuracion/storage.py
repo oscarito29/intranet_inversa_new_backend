@@ -2,8 +2,10 @@ import re
 import uuid
 
 from django.core.exceptions import ValidationError
-from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
+
+from apps.core.archivos import guardar_archivo
+from apps.core.subidas import validar_contenido
 
 EXTENSIONES_PERMITIDAS = {'.jpg', '.jpeg', '.png', '.webp'}
 TAMANIO_MAXIMO_BYTES = 5 * 1024 * 1024
@@ -18,19 +20,18 @@ def _validar_imagen(archivo: UploadedFile) -> None:
     extension = ('.' + nombre.rsplit('.', 1)[-1].lower()) if '.' in nombre else ''
     if extension not in EXTENSIONES_PERMITIDAS:
         raise ValidationError(f'Tipo de imagen no permitido ({extension or "sin extensión"}).')
-    if archivo.size > TAMANIO_MAXIMO_BYTES:
+    if (archivo.size or 0) > TAMANIO_MAXIMO_BYTES:
         raise ValidationError('La imagen supera el tamaño máximo permitido (5MB).')
+    validar_contenido(archivo)
 
 
 def guardar_imagen_carrusel(archivo: UploadedFile) -> str:
     _validar_imagen(archivo)
-    key = f'imagenes-carrusel/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name)}'
-    ruta_guardada = default_storage.save(key, archivo)
-    return default_storage.url(ruta_guardada)
+    key = f'imagenes-carrusel/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name or '')}'
+    return guardar_archivo(key, archivo)
 
 
 def guardar_imagen_comunicado(archivo: UploadedFile) -> str:
     _validar_imagen(archivo)
-    key = f'comunicados/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name)}'
-    ruta_guardada = default_storage.save(key, archivo)
-    return default_storage.url(ruta_guardada)
+    key = f'comunicados/{uuid.uuid4().hex}_{_sanitizar_nombre(archivo.name or '')}'
+    return guardar_archivo(key, archivo)
